@@ -1,5 +1,6 @@
 # Agentic AI-Powered Smart DevOps Assistant
 
+
 **Agentic AI-Powered Smart DevOps Assistant for Autonomous Software Delivery and Infrastructure Management** is a supervisor-demo-ready CI/CD automation assistant.
 
 The application helps a user scan a GitHub repository, detect its stack, generate GitHub Actions workflows, diagnose failed CI/CD logs with a trained ML model, recommend practical fixes, and propose safe pull requests with approval and audit controls.
