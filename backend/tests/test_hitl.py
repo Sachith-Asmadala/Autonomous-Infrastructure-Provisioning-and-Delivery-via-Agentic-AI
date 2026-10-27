@@ -84,11 +84,6 @@ def _admin_headers() -> dict:
     return {"Authorization": f"Bearer {token}"}
 
 
-def _operator_headers() -> dict:
-    token = create_access_token({"sub": str(uuid.uuid4()), "role": "operator", "username": "ops"})
-    return {"Authorization": f"Bearer {token}"}
-
-
 def _dev_headers() -> dict:
     token = create_access_token({"sub": str(uuid.uuid4()), "role": "developer", "username": "dev"})
     return {"Authorization": f"Bearer {token}"}

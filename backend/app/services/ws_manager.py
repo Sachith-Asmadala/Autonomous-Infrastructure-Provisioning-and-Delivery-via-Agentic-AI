@@ -7,7 +7,7 @@ Responsibilities
 - Enforces a per-user connection limit (default: 5).
 - Provides a heartbeat / ping-pong loop so stale connections are detected.
 - Exposes ``broadcast_to_user()`` for server-initiated messages (e.g. HITL
-  notifications pushed to the operator who can decide an approval).
+  notifications pushed to the reviewer who can decide an approval).
 """
 from __future__ import annotations
 

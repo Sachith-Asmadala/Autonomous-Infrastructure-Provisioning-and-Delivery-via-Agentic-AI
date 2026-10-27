@@ -1,5 +1,9 @@
 import axios from "axios";
-import { IS_AUTH_DISABLED } from "@/config/runtime";
+import {
+  IS_AUTH_DISABLED,
+  IS_DESKTOP_MODE,
+  IS_MOBILE_MODE,
+} from "@/config/runtime";
 import type { RoleProfile, User, UserRole } from "@/types";
 import { normalizeRole } from "@/lib/rbac";
 
@@ -29,7 +33,11 @@ export function normalizeBackendUrl(value: string): string {
 export function getApiBaseUrl(): string {
   const stored = safeLocalStorageGet(BACKEND_URL_STORAGE_KEY);
   const envValue = String(import.meta.env.VITE_API_BASE_URL || "").trim();
-  return normalizeBackendUrl(stored || envValue || "http://127.0.0.1:8000");
+  const defaultUrl =
+    IS_DESKTOP_MODE || IS_MOBILE_MODE
+      ? "http://127.0.0.1:8000"
+      : window.location.origin;
+  return normalizeBackendUrl(stored || envValue || defaultUrl);
 }
 
 export function setStoredBackendUrl(value: string): string {
@@ -103,15 +111,21 @@ export interface RegisterRequest {
   email: string;
   username: string;
   password: string;
-  role: Extract<UserRole, "developer" | "viewer">;
 }
 
 export interface AdminCreateUserRequest {
   email: string;
   username: string;
   password: string;
-  role: UserRole;
+  role: Exclude<UserRole, "admin">;
   is_active?: boolean;
+}
+
+export interface UserStatusApproval {
+  approval_id: string;
+  user: User;
+  is_active: boolean;
+  status: "approval_required";
 }
 
 function normalizeUser(data: LoginResponse | User): User {
@@ -141,14 +155,12 @@ export const authService = {
     email,
     username,
     password,
-    role,
   }: RegisterRequest): Promise<User> => {
     setInMemoryAccessToken(null);
     const res = await api.post<LoginResponse>("/auth/register", {
       email,
       username,
       password,
-      role,
     });
     setInMemoryAccessToken(res.data.access_token);
     return normalizeUser(res.data);
@@ -176,6 +188,16 @@ export const authService = {
     const res = await api.post<User>("/auth/users", payload);
     return normalizeUser(res.data);
   },
+  requestUserStatusChange: async (
+    userId: string,
+    isActive: boolean,
+  ): Promise<UserStatusApproval> => {
+    const res = await api.post<UserStatusApproval>(
+      `/auth/users/${userId}/status-requests`,
+      { is_active: isActive },
+    );
+    return res.data;
+  },
 };
 
 export interface SystemStatus {
@@ -194,10 +216,13 @@ export const healthService = {
   },
   testConnection: async (baseUrl: string): Promise<SystemStatus> => {
     const normalized = normalizeBackendUrl(baseUrl);
-    const res = await axios.get<SystemStatus>(`${normalized}/api/v1/health/status`, {
-      timeout: 6000,
-      withCredentials: true,
-    });
+    const res = await axios.get<SystemStatus>(
+      `${normalized}/api/v1/health/status`,
+      {
+        timeout: 6000,
+        withCredentials: true,
+      },
+    );
     return res.data;
   },
 };
@@ -245,8 +270,8 @@ export interface AgentTraceStep {
 }
 
 export const approvalService = {
-  list: async () => {
-    const res = await api.get("/approvals");
+  list: async (scope: "all" | "mine" = "all") => {
+    const res = await api.get("/approvals", { params: { scope } });
     return res.data;
   },
   decide: async (approvalId: string, approved: boolean, note?: string) => {
@@ -287,6 +312,9 @@ export interface WorkflowFailure {
   id: string;
   repo_full_name: string;
   workflow_run_id: number;
+  requested_by?: string | null;
+  diagnosis_error?: string | null;
+  has_pending_approval?: boolean | null;
   workflow_name: string | null;
   branch: string | null;
   conclusion: string;
@@ -315,10 +343,55 @@ export interface WorkflowFailureFixPRResult {
   approval_details?: Record<string, unknown> | null;
 }
 
+export interface WorkflowFailureIntegrationStatus {
+  can_download_logs: boolean;
+  webhook_configured: boolean;
+  default_repository: string | null;
+}
+
 export const workflowFailureService = {
-  list: async (limit = 50): Promise<WorkflowFailure[]> => {
+  integrationStatus: async (
+    signal?: AbortSignal,
+  ): Promise<WorkflowFailureIntegrationStatus> => {
+    const res = await api.get<WorkflowFailureIntegrationStatus>(
+      "/workflow-failures/integration-status",
+      { signal },
+    );
+    return res.data;
+  },
+  sync: async (
+    repoFullName: string,
+  ): Promise<{
+    failures: WorkflowFailure[];
+    imported: number;
+    diagnosed: number;
+    message: string;
+  }> => {
+    const res = await api.post("/workflow-failures/sync", {
+      repo_full_name: repoFullName,
+    });
+    return res.data;
+  },
+  importLogs: async (request: {
+    repo_full_name: string;
+    workflow_run_id: number;
+    log_text: string;
+    workflow_name?: string;
+    branch?: string;
+  }): Promise<WorkflowFailure> => {
+    const res = await api.post<WorkflowFailure>(
+      "/workflow-failures/import",
+      request,
+    );
+    return res.data;
+  },
+  list: async (
+    limit = 200,
+    signal?: AbortSignal,
+  ): Promise<WorkflowFailure[]> => {
     const res = await api.get<WorkflowFailure[]>("/workflow-failures", {
       params: { limit },
+      signal,
     });
     return res.data;
   },
@@ -399,6 +472,10 @@ export interface WorkflowPRResult {
   approval_required?: boolean;
   approval_id?: string;
   message?: string;
+  execution_id?: string;
+  execution_status?: string;
+  expires_at?: string;
+  approval_status?: string;
 }
 
 export interface EvaluationSummary {
@@ -421,6 +498,32 @@ export const evaluationService = {
 };
 
 export const repositoryService = {
+  integrationStatus: async (signal?: AbortSignal) => {
+    const res = await api.get<{ credentials_configured: boolean }>(
+      "/repositories/integration-status",
+      { signal },
+    );
+    return res.data;
+  },
+  workflowPrStatus: async (
+    repoFullName: string,
+    overwriteExistingWorkflow = false,
+    signal?: AbortSignal,
+    approvalId?: string | null,
+  ): Promise<WorkflowPRResult | null> => {
+    const res = await api.get<WorkflowPRResult | null>(
+      "/repositories/workflow-pr-status",
+      {
+        params: {
+          repo_full_name: repoFullName,
+          overwrite_existing_workflow: overwriteExistingWorkflow,
+          ...(approvalId ? { approval_id: approvalId } : {}),
+        },
+        signal,
+      },
+    );
+    return res.data;
+  },
   scan: async (repoFullName: string): Promise<RepositoryScanResult> => {
     const res = await api.post<RepositoryScanResult>("/repositories/scan", {
       repo_full_name: repoFullName,

@@ -4,11 +4,13 @@ from __future__ import annotations
 import json
 import re
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.models.models import ApprovalRequest, Execution, WorkflowFailure
 from app.services import audit_service
 from app.services.fix_recommendation_service import get_fix_recommendation
@@ -212,6 +214,26 @@ async def _create_fix_pr_approval(
     risk_level: str,
 ) -> dict:
     details = _approval_details(failure, risk_level=risk_level)
+    pending = (await db.execute(select(ApprovalRequest).where(
+        ApprovalRequest.tool_name == "github_create_fix_pr", ApprovalRequest.requested_by == actor,
+        ApprovalRequest.status == "pending",
+    ).order_by(ApprovalRequest.created_at.desc()))).scalars().all()
+    # Pending requests remain reviewable; repeated clicks must not create a
+    # second action for the same failure. Check its saved input, not UI state.
+    for existing in pending:
+        try:
+            same_failure = json.loads(existing.tool_input or "{}").get("workflow_failure_id") == failure.id
+        except (ValueError, AttributeError):
+            continue
+        expires_at = existing.expires_at
+        unexpired = expires_at is None or expires_at.replace(tzinfo=timezone.utc) > datetime.now(timezone.utc)
+        if same_failure and unexpired:
+            return {
+                "workflow_failure_id": failure.id, "repo_full_name": failure.repo_full_name,
+                "status": "approval_required", "approval_id": existing.id,
+                "message": "This fix already has a pending approval request.",
+                "recommendation": failure.recommendation, "approval_details": details,
+            }
     summary = (
         f"Approve fix PR for {failure.repo_full_name} workflow run "
         f"{failure.workflow_run_id} ({failure.predicted_label or 'unknown_failure'})."
@@ -230,6 +252,7 @@ async def _create_fix_pr_approval(
         risk_level=risk_level,
         summary=summary,
         status="pending",
+        expires_at=datetime.now(timezone.utc) + timedelta(seconds=settings.HITL_APPROVAL_TIMEOUT_SECONDS),
     )
     db.add(approval)
     failure.status = "approval_pending"
@@ -348,14 +371,6 @@ async def create_fix_pr_for_failure(
     }
 
     risk_level = _risk_level(failure)
-    if not bypass_approval and risk_level in {"medium", "high", "critical"}:
-        return await _create_fix_pr_approval(
-            db,
-            failure=failure,
-            actor=actor,
-            risk_level=risk_level,
-        )
-
     if failure.fix_pr_url:
         result: dict[str, Any] = {
             "workflow_failure_id": failure.id,
@@ -376,6 +391,12 @@ async def create_fix_pr_for_failure(
                 details={"tool_input": audit_input, "result": result},
             )
         return result
+
+    if not bypass_approval:
+        return await _create_fix_pr_approval(
+            db, failure=failure, actor=actor,
+            risk_level=risk_level if risk_level in {"medium", "high", "critical"} else "medium",
+        )
 
     if failure.predicted_label not in PATCHERS:
         result = _recommendation_only(

@@ -7,6 +7,7 @@ from __future__ import annotations
 import base64
 import io
 import re
+import uuid
 import zipfile
 from datetime import datetime, timezone
 from typing import Any, Mapping
@@ -53,6 +54,10 @@ _TOKEN_PATTERNS = [
     re.compile(r"(?i)\b(bearer|token)\s+[A-Za-z0-9._~+/=-]{20,}"),
     re.compile(r"(?i)\b(x-access-token:)\s*[A-Za-z0-9._~+/=-]{20,}"),
     re.compile(r"(?i)\b(secret|api[_-]?key|access[_-]?token)=['\"]?[A-Za-z0-9._~+/=-]{16,}['\"]?"),
+    re.compile(
+        r"(?i)\b(password|passwd|secret|api[_-]?key|database_url|redis_url|refresh[_-]?token|jwt|client[_-]?secret)"
+        r"\s*[:=]\s*(?:\"[^\"]*\"|'[^']*'|[^\s,]+)"
+    ),
 ]
 
 
@@ -129,7 +134,11 @@ def _validate_repo_full_name(repo_full_name: str) -> str:
     if not normalized or "/" not in normalized:
         raise GitHubToolError("Repository full name is required in the form 'owner/repo'.")
     owner, repo = normalized.split("/", 1)
-    if not owner.strip() or not repo.strip() or "/" in repo:
+    if (
+        len(normalized) > 255 or not re.fullmatch(r"[A-Za-z0-9_.-]+", owner.strip())
+        or not re.fullmatch(r"[A-Za-z0-9_.-]+", repo.strip())
+        or repo.strip() in {".", ".."} or owner.strip() in {".", ".."}
+    ):
         raise GitHubToolError("Repository full name is required in the form 'owner/repo'.")
     return f"{owner.strip()}/{repo.strip()}"
 
@@ -193,6 +202,51 @@ def _clean_log_text(value: str) -> str:
     for pattern in _TOKEN_PATTERNS:
         cleaned = pattern.sub(lambda match: f"{match.group(1)} [REDACTED]" if match.groups() else "[REDACTED]", cleaned)
     return cleaned.replace("\x00", "")
+
+
+def clean_workflow_log(value: str) -> str:
+    """Apply the same redaction to pasted logs as downloaded GitHub logs."""
+    return _clean_log_text(value)
+
+
+def list_failed_workflow_runs(repo_full_name: str, limit: int = 10, *, token: str | None = None) -> list[dict]:
+    """Read real failed/timed-out runs, including public repositories without a token."""
+    repo_full_name = _validate_repo_full_name(repo_full_name)
+    auth_token = token or settings.GITHUB_TOKEN
+    headers = _github_rest_headers(auth_token) if auth_token else {
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "smart-devops-assistant",
+    }
+    limit = min(max(limit, 1), 20)
+    runs: list[dict[str, Any]] = []
+    try:
+        for conclusion in ("failure", "timed_out"):
+            response = requests.get(
+                f"{GITHUB_API_BASE_URL}/repos/{repo_full_name}/actions/runs",
+                headers=headers, params={"status": conclusion, "per_page": limit},
+                timeout=REQUEST_TIMEOUT_SECONDS,
+            )
+            if response.status_code == 404:
+                raise GitHubToolError(
+                    "Repository not found or private. Configure GitHub access for private repositories."
+                )
+            if response.status_code == 401:
+                raise GitHubToolError("GitHub credentials are invalid. Ask your admin to update GitHub access.")
+            if response.status_code == 403:
+                raise GitHubToolError("GitHub denied access or its API rate limit was reached. Try again later.")
+            if response.status_code != 200:
+                raise GitHubToolError(f"Unable to load failed workflow runs: GitHub returned {response.status_code}.")
+            payload = response.json()
+            if not isinstance(payload, dict) or not isinstance(payload.get("workflow_runs"), list):
+                raise GitHubToolError("GitHub returned an invalid workflow run response.")
+            runs.extend(
+                run for run in payload["workflow_runs"] if run.get("conclusion") in {"failure", "timed_out"}
+            )
+    except (requests.RequestException, ValueError) as exc:
+        raise GitHubToolError("Could not load GitHub workflow runs. Check connectivity and try again.") from exc
+    runs.sort(key=lambda run: (run.get("created_at") or "", run.get("id") or 0), reverse=True)
+    return runs[:limit]
 
 
 def _append_limited(parts: list[str], text: str, remaining_chars: int) -> int:
@@ -634,7 +688,7 @@ def _workflow_branch_name(repository, base_name: str = WORKFLOW_BRANCH) -> str:
             return base_name
         raise
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
-    return f"{base_name}-{timestamp}"
+    return f"{base_name}-{timestamp}-{uuid.uuid4().hex[:8]}"
 
 
 def _create_workflow_pr_from_yaml(
@@ -656,6 +710,25 @@ def _create_workflow_pr_from_yaml(
     base_branch = repository.default_branch
     if base_branch in {"ai-cicd/setup-pipeline", WORKFLOW_BRANCH}:
         raise GitHubToolError("Default branch is not a safe PR base for generated workflow changes.")
+
+    # Check before creating a branch so a refused replacement or empty diff
+    # leaves no abandoned branch behind on repeated attempts.
+    try:
+        existing = repository.get_contents(WORKFLOW_PATH, ref=base_branch)
+    except GithubException as exc:
+        if getattr(exc, "status", None) != 404:
+            raise GitHubToolError(_github_error_message(exc, "Unable to inspect existing workflow")) from exc
+    else:
+        content = getattr(existing, "decoded_content", None)
+        if isinstance(content, bytes) and content.decode("utf-8").strip() == workflow_yaml.strip():
+            raise GitHubToolError(
+                "The generated workflow already matches the default branch. No new pull request is needed."
+            )
+        if not overwrite_existing_workflow:
+            raise GitHubToolError(
+                "The AI-generated workflow file already exists. Review and select "
+                "'Replace existing AI-generated workflow file' to request an update."
+            )
 
     branch_name = _workflow_branch_name(repository)
 

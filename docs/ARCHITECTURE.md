@@ -249,8 +249,8 @@ flowchart TD
 - Access tokens are accepted from Authorization bearer headers or the configured httpOnly cookie.
 - Refresh tokens are stored in `user_sessions`.
 - RBAC is enforced in backend route dependencies.
-- Public self-signup is limited to viewer/developer accounts.
-- Admin/operator accounts must be created by an admin.
+- Public self-signup is limited to developer accounts.
+- The initial admin is bootstrapped; additional admin creation is disabled.
 - GitHub webhook signatures are verified when a webhook secret is configured.
 - GitHub App installation tokens are preferred for installed repositories.
 - PAT fallback exists for local MVP testing.

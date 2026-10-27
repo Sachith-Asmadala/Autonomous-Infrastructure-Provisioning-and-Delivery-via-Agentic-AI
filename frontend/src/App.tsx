@@ -15,6 +15,7 @@ import DashboardPage from "@/pages/DashboardPage";
 import DiagnosisPage from "@/pages/DiagnosisPage";
 import EvaluationPage from "@/pages/EvaluationPage";
 import ExecutionsPage from "@/pages/ExecutionsPage";
+import LandingPage from "@/pages/LandingPage";
 import LoginPage from "@/pages/LoginPage";
 import MultiAgentPage from "@/pages/MultiAgentPage";
 import RepositorySetupPage from "@/pages/RepositorySetupPage";
@@ -91,7 +92,10 @@ function ProtectedRoute({ children }: { children: ReactNode }) {
 function RoleProtectedRoute({ children }: { children: ReactNode }) {
   const { user } = useAuthStore();
   const location = useLocation();
-  if ((IS_AUTH_DISABLED || IS_MOBILE_MODE) && location.pathname.startsWith("/users")) {
+  if (
+    (IS_AUTH_DISABLED || IS_MOBILE_MODE) &&
+    location.pathname.startsWith("/users")
+  ) {
     return <Navigate to={DESKTOP_HOME_PATH} replace />;
   }
   if (IS_AUTH_DISABLED) return <>{children}</>;
@@ -104,7 +108,6 @@ function RoleProtectedRoute({ children }: { children: ReactNode }) {
 
 function AppRoutes() {
   const { checkAuth, markUnauthenticated } = useAuthStore();
-  const location = useLocation();
 
   useEffect(() => {
     if (IS_AUTH_DISABLED) return;
@@ -118,43 +121,48 @@ function AppRoutes() {
   }, [markUnauthenticated]);
 
   useEffect(() => {
-    if (IS_AUTH_DISABLED) {
-      checkAuth();
-      return;
-    }
-    if (location.pathname === "/login") {
-      markUnauthenticated();
-      return;
-    }
-    checkAuth();
-  }, [checkAuth, location.pathname, markUnauthenticated]);
+    void checkAuth();
+  }, [checkAuth]);
 
   return (
     <Routes>
+      <Route
+        path="/"
+        element={
+          IS_AUTH_DISABLED ? (
+            <Navigate to={DESKTOP_HOME_PATH} replace />
+          ) : (
+            <LandingPage />
+          )
+        }
+      />
+      <Route
+        path="/signup"
+        element={
+          IS_AUTH_DISABLED ? (
+            <Navigate to={DESKTOP_HOME_PATH} replace />
+          ) : (
+            <LoginPage key="signup" mode="signup" />
+          )
+        }
+      />
       <Route
         path="/login"
         element={
           IS_AUTH_DISABLED ? (
             <Navigate to={DESKTOP_HOME_PATH} replace />
           ) : (
-            <LoginPage />
+            <LoginPage key="login" />
           )
         }
       />
       <Route
-        path="/"
         element={
           <ProtectedRoute>
             <Layout />
           </ProtectedRoute>
         }
       >
-        <Route
-          index
-          element={
-            <Navigate to={IS_AUTH_DISABLED ? DESKTOP_HOME_PATH : "/chat"} replace />
-          }
-        />
         <Route
           path="dashboard"
           element={
@@ -264,9 +272,7 @@ export default function App() {
   }, [syncSystemTheme]);
 
   return (
-    <Router
-      future={{ v7_relativeSplatPath: true, v7_startTransition: true }}
-    >
+    <Router future={{ v7_relativeSplatPath: true, v7_startTransition: true }}>
       <AppRoutes />
     </Router>
   );

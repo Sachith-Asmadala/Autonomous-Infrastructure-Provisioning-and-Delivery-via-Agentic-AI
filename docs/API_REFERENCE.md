@@ -53,13 +53,12 @@ Most browser-based clients use the cookie automatically. API clients (curl, SDKs
 
 | Role | Main Permissions | Use Case |
 | --- | --- | --- |
-| `viewer` | `agent:chat`, `approvals:read`, `logs:read`, `metrics:read`, `executions:read` | Read-only access for observability. |
-| `developer` | All viewer permissions + `metrics:read`, `executions:read` | Developer: view builds and logs. |
-| `operator` | All developer permissions + `logs:write`, `executions:write`, `approvals:read`, `approvals:decide` | Operator: approve high-risk actions, manage CI/CD. |
+| `developer` | CI/CD generation, repository workflow requests, own approvals, own execution history | Personal delivery workspace. |
 | `admin` | All permissions | Full system access. |
 
-- **Public sign-up**: Only `viewer` and `developer` roles.
-- **Operator/Admin creation**: Admin-only, via `POST /api/v1/auth/users`.
+- **Public sign-up**: Developer accounts only; the role field can be omitted.
+- **Member creation**: Admin-only, via `POST /api/v1/auth/users`, for developer accounts. Creating additional admin accounts is disabled;
+  the initial admin is bootstrapped when no administrator exists.
 
 ---
 
@@ -143,35 +142,39 @@ All error responses follow this format:
 {
   "roles": [
     {
-      "role": "viewer",
-      "label": "Viewer",
-      "description": "Read-only access to logs and workflow failures.",
-      "permissions": ["agent:chat", "approvals:read", "logs:read", "metrics:read", "executions:read"],
-      "can_self_signup": true
+      "role": "admin",
+      "label": "Admin",
+      "description": "Full platform owner. Can manage users, audit activity, approve changes, and use all agent tools.",
+      "permissions": [
+        "*"
+      ],
+      "can_self_signup": false
     },
     {
       "role": "developer",
       "label": "Developer",
-      "description": "CI/CD builder with execution permissions.",
-      "permissions": ["agent:chat", "logs:read", "metrics:read", "executions:read"],
+      "description": "Can build CI/CD workflows, review their own approval requests, and use development/staging tools.",
+      "permissions": [
+        "agent:chat",
+        "agents:orchestrate",
+        "approvals:decide:own",
+        "approvals:read",
+        "cicd:generate",
+        "cicd:read",
+        "deployments:staging",
+        "executions:read",
+        "failures:predict",
+        "logs:read",
+        "repositories:read",
+        "repositories:write",
+        "workflow_failures:read"
+      ],
       "can_self_signup": true
-    },
-    {
-      "role": "operator",
-      "label": "Operator",
-      "description": "Operator with approval and execution permissions.",
-      "permissions": ["agent:chat", "logs:read", "logs:write", "executions:read", "executions:write", "approvals:read", "approvals:decide"],
-      "can_self_signup": false
-    },
-    {
-      "role": "admin",
-      "label": "Administrator",
-      "description": "Full system access.",
-      "permissions": ["*"],
-      "can_self_signup": false
     }
   ],
-  "public_signup_roles": ["viewer", "developer"]
+  "public_signup_roles": [
+    "developer"
+  ]
 }
 ```
 
@@ -179,7 +182,7 @@ All error responses follow this format:
 
 ### `POST /api/v1/auth/register`
 
-**Purpose**: Create a public viewer/developer account and log in.
+**Purpose**: Create a public developer account and log in.
 
 **Method**: POST | **Path**: `/api/v1/auth/register`
 
@@ -366,9 +369,9 @@ All error responses follow this format:
   },
   {
     "id": "550e8400-e29b-41d4-a716-446655440001",
-    "email": "operator@example.com",
-    "username": "operator1",
-    "role": "operator",
+    "email": "member@example.com",
+    "username": "member1",
+    "role": "developer",
     "is_active": true,
     "created_at": "2026-06-01T08:30:00Z"
   }
@@ -381,6 +384,9 @@ All error responses follow this format:
 
 **Purpose**: Create a new user account (admin-only operation).
 
+Only `developer` is accepted. `admin` requests
+return HTTP 422; existing administrator accounts are preserved.
+
 **Method**: POST | **Path**: `/api/v1/auth/users`
 
 **Auth**: Required permission `users:manage` (admin only).
@@ -389,10 +395,10 @@ All error responses follow this format:
 
 ```json
 {
-  "email": "operator@example.com",
-  "username": "operator1",
+  "email": "member@example.com",
+  "username": "member1",
   "password": "secure_password_123",
-  "role": "operator",
+  "role": "developer",
   "is_active": true
 }
 ```
@@ -402,9 +408,9 @@ All error responses follow this format:
 ```json
 {
   "id": "550e8400-e29b-41d4-a716-446655440001",
-  "email": "operator@example.com",
-  "username": "operator1",
-  "role": "operator",
+  "email": "member@example.com",
+  "username": "member1",
+  "role": "developer",
   "is_active": true,
   "created_at": "2026-06-01T08:30:00Z"
 }
@@ -737,11 +743,9 @@ The orchestration layer routes natural language requests to specialized agents (
 
 ### `POST /api/v1/repositories/create-workflow-pr`
 
-**Purpose**: Create an AI-generated GitHub Actions workflow pull request.
+**Purpose**: Save or reuse human approval for a GitHub Actions workflow PR.
 
-**Method**: POST | **Path**: `/api/v1/repositories/create-workflow-pr`
-
-**Auth**: Required permission `executions:write`.
+**Auth**: Required permission `repositories:write`.
 
 **Request**:
 
@@ -752,7 +756,7 @@ The orchestration layer routes natural language requests to specialized agents (
 }
 ```
 
-**Response - Approval Required (200 OK, when `ENABLE_HITL=true`):**
+**Response (200 OK)**:
 
 ```json
 {
@@ -760,37 +764,49 @@ The orchestration layer routes natural language requests to specialized agents (
   "status": "approval_required",
   "approval_required": true,
   "approval_id": "550e8400-e29b-41d4-a716-446655440099",
-  "message": "Human approval is required before creating the workflow pull request."
+  "approval_status": "pending",
+  "message": "Human approval is required before sending this pull request."
 }
 ```
 
-**Response - Immediate Execution (200 OK, when `ENABLE_HITL=false`):**
+All workflow PR writes require saved human approval, regardless of `ENABLE_HITL`. Repeated submissions reuse the caller's unexpired pending review for the same repository and replacement option. After expiry, rejection, or failed execution, a new submission creates a fresh review.
+
+### `GET /api/v1/repositories/workflow-pr-status`
+
+**Purpose**: Retrieve the review and execution result after leaving or refreshing the Repositories page.
+
+**Auth**: Required permission `repositories:write`.
+
+**Query**: `repo_full_name` (required), `overwrite_existing_workflow` (default false), `approval_id` (optional UUID).
+
+Without an ID, returns the caller's latest matching review or `null`. With an ID, returns that review only if the caller owns it or is an admin; inaccessible or mismatched IDs return 404.
+
+**Completed response (200 OK)**:
 
 ```json
 {
   "repo_full_name": "owner/demo-repo",
-  "detected_stack": {
-    "language": "python",
-    "framework": "fastapi",
-    "package_manager": "pip",
-    "has_docker": true,
-    "has_existing_workflows": false,
-    "recommended_workflow": "python",
-    "project_dir": ".",
-    "detected_projects": [],
-    "ci_warnings": []
-  },
-  "branch": "ai-cicd/setup-pipeline-20260601102429",
+  "approval_id": "550e8400-e29b-41d4-a716-446655440099",
+  "approval_status": "approved",
+  "approval_required": false,
+  "status": "completed",
+  "execution_status": "completed",
+  "branch": "ai-cicd/setup-pipeline",
   "workflow_path": ".github/workflows/ai-generated-ci.yml",
   "pull_request_url": "https://github.com/owner/demo-repo/pull/1",
-  "status": "success"
+  "message": "Workflow pull request is ready for review."
 }
 ```
 
-**Notes**:
-- When `ENABLE_HITL=true`, an approval request is created and must be decided before PR creation.
-- When `ENABLE_HITL=false`, the PR is created immediately.
-- Branch name format: `ai-cicd/setup-pipeline-<timestamp>`.
+Failed results have `status: "failed"` and a sanitized error in `message`. Expired and rejected reviews have `status: "timed_out"` or `"rejected"`. Completed results also include execution ID, expiry time, and detected stack when available. Branch collisions use a timestamp plus random suffix.
+
+### `GET /api/v1/repositories/integration-status`
+
+**Auth**: Required permission `repositories:read`.
+
+Returns `{ "credentials_configured": true }` when a backend PAT or GitHub App credentials are configured. This reports configuration presence, not credential validity or repository authorization. No credential values are returned.
+
+See [Workflow PR troubleshooting](PULL_REQUEST_TROUBLESHOOTING.md) for setup, permissions, and retries.
 
 ---
 
@@ -926,7 +942,7 @@ X-GitHub-Delivery: <delivery-uuid>
 
 **Method**: GET | **Path**: `/api/v1/workflow-failures`
 
-**Auth**: Required permission `executions:read`.
+**Auth**: Required permission `workflow_failures:read`.
 
 **Query Parameters**:
 
@@ -942,7 +958,7 @@ X-GitHub-Delivery: <delivery-uuid>
     "id": "failure-uuid-1",
     "repo_full_name": "owner/demo-repo",
     "workflow_name": "CI",
-    "run_id": 123456,
+    "workflow_run_id": 123456,
     "branch": "main",
     "conclusion": "failure",
     "workflow_run_url": "https://github.com/owner/demo-repo/actions/runs/123456",
@@ -964,7 +980,7 @@ X-GitHub-Delivery: <delivery-uuid>
 
 **Method**: GET | **Path**: `/api/v1/workflow-failures/{failure_id}`
 
-**Auth**: Required permission `executions:read`.
+**Auth**: Required permission `workflow_failures:read`.
 
 **Parameter**:
 - `failure_id` (UUID): Workflow failure ID.
@@ -976,7 +992,7 @@ X-GitHub-Delivery: <delivery-uuid>
   "id": "failure-uuid-1",
   "repo_full_name": "owner/demo-repo",
   "workflow_name": "CI",
-  "run_id": 123456,
+  "workflow_run_id": 123456,
   "branch": "main",
   "conclusion": "failure",
   "workflow_run_url": "https://github.com/owner/demo-repo/actions/runs/123456",
@@ -998,11 +1014,11 @@ X-GitHub-Delivery: <delivery-uuid>
 
 ### `POST /api/v1/workflow-failures/{failure_id}/create-fix-pr`
 
-**Purpose**: Create an automated fix pull request for a diagnosed failure (requires approval if high-risk).
+**Purpose**: Create an automated fix pull request for a diagnosed failure (requires explicit human approval).
 
 **Method**: POST | **Path**: `/api/v1/workflow-failures/{failure_id}/create-fix-pr`
 
-**Auth**: Required permission `executions:write`.
+**Auth**: Required permission `repositories:write`; developers may request only their own failures.
 
 **Parameter**:
 - `failure_id` (UUID): Workflow failure ID.
@@ -1028,7 +1044,7 @@ X-GitHub-Delivery: <delivery-uuid>
 }
 ```
 
-**Response - Fix PR Created (200 OK):**
+**Execution result after approval (repository changes occur only at this stage):**
 
 ```json
 {
@@ -1036,16 +1052,27 @@ X-GitHub-Delivery: <delivery-uuid>
   "repo_full_name": "owner/demo-repo",
   "status": "fix_pr_created",
   "branch": "ai-fix/npm-test-script-20260601101530",
-  "workflow_path": "package.json",
+  "workflow_path": ".github/workflows/ci.yml",
   "pull_request_url": "https://github.com/owner/demo-repo/pull/2",
   "message": "Fix PR successfully created."
 }
 ```
 
 **Notes**:
-- Low-risk fixes are applied immediately.
-- Medium/high-risk fixes require approval when `ENABLE_HITL=true`.
-- Branch format: `ai-fix/<fix-type>-<timestamp>`.
+- All repository changes require approval, including low-risk fixes and when demo HITL settings are disabled.
+- Developers see their own imported records; admins see all records, including webhooks and legacy records.
+- Branch format: `ai-cicd/fix-<workflow_run_id>`.
+- A repeated fix request reuses its existing unexpired pending approval.
+
+---
+
+### Import and integration endpoints
+
+- `GET /api/v1/workflow-failures/integration-status` reports whether automatic log download and signed webhooks are configured. It exposes no credentials.
+- `POST /api/v1/workflow-failures/sync` accepts `{"repo_full_name":"owner/repo","limit":10}` and imports failed or timed-out runs. Public metadata works without a token. Available log-download credentials enable automatic diagnosis. Otherwise the record has `logs_unavailable` and an actionable `diagnosis_error`.
+- `POST /api/v1/workflow-failures/import` accepts `repo_full_name`, positive `workflow_run_id`, and `log_text`, with optional `workflow_name` and `branch`. It diagnoses pasted logs and saves the result under the authenticated user. Reimporting the same run updates that user's existing record.
+
+Read [Workflow Failure Guide](WORKFLOW_FAILURES.md) for the UI flow and configuration details.
 
 ---
 
@@ -1128,7 +1155,7 @@ X-GitHub-Delivery: <delivery-uuid>
 
 **Method**: POST | **Path**: `/api/v1/approvals/{approval_id}/decide`
 
-**Auth**: Required permission `approvals:decide` (operator/admin only).
+**Auth**: Required permission `approvals:decide` (admin globally; developers for their own eligible requests).
 
 **Parameter**:
 - `approval_id` (UUID): Approval request ID.
@@ -1148,7 +1175,7 @@ X-GitHub-Delivery: <delivery-uuid>
 {
   "id": "approval-uuid-1",
   "status": "approved",
-  "decided_by": "operator@example.com",
+  "decided_by": "member@example.com",
   "decided_at": "2026-06-01T10:07:00Z",
   "decision_note": "Reviewed and approved. Workflow looks good.",
   "execution": {
@@ -1166,7 +1193,7 @@ X-GitHub-Delivery: <delivery-uuid>
 {
   "id": "approval-uuid-1",
   "status": "rejected",
-  "decided_by": "operator@example.com",
+  "decided_by": "member@example.com",
   "decided_at": "2026-06-01T10:07:00Z",
   "decision_note": "Rejected due to existing workflow.",
   "execution": {

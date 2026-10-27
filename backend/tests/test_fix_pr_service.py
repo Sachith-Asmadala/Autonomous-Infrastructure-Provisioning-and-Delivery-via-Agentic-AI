@@ -115,7 +115,8 @@ async def test_create_fix_pr_for_npm_missing_test_script(monkeypatch, db_session
     result = await fix_pr_service.create_fix_pr_for_failure(
         db_session,
         failure.id,
-        {"username": "operator", "role": "operator"},
+        {"username": "admin", "role": "admin"},
+        bypass_approval=True,
     )
 
     assert result["status"] == "fix_pr_created"
@@ -129,7 +130,7 @@ async def test_create_fix_pr_for_npm_missing_test_script(monkeypatch, db_session
     audit_result = await db_session.execute(select(Execution).where(Execution.tool_name == "github_create_fix_pr"))
     audit = audit_result.scalar_one()
     assert audit.status == "completed"
-    assert audit.requested_by == "operator"
+    assert audit.requested_by == "admin"
     assert json.loads(audit.details)["result"]["status"] == "fix_pr_created"
 
 
@@ -209,7 +210,8 @@ async def test_create_fix_pr_uses_installation_token_when_installed(monkeypatch,
     result = await fix_pr_service.create_fix_pr_for_failure(
         db_session,
         failure.id,
-        {"username": "operator", "role": "operator"},
+        {"username": "admin", "role": "admin"},
+        bypass_approval=True,
     )
 
     assert result["status"] == "fix_pr_created"
@@ -258,7 +260,7 @@ async def test_create_fix_pr_for_pytest_not_found_adds_install_step(monkeypatch,
         },
     )
 
-    result = await fix_pr_service.create_fix_pr_for_failure(db_session, failure.id)
+    result = await fix_pr_service.create_fix_pr_for_failure(db_session, failure.id, bypass_approval=True)
 
     assert result["status"] == "fix_pr_created"
     assert "python -m pip install pytest" in captured["content"]
@@ -315,8 +317,24 @@ async def test_missing_safe_pattern_returns_recommendation_only(monkeypatch, db_
         },
     )
 
-    result = await fix_pr_service.create_fix_pr_for_failure(db_session, failure.id)
+    result = await fix_pr_service.create_fix_pr_for_failure(db_session, failure.id, bypass_approval=True)
 
     assert result["status"] == "recommendation_only"
     assert result["workflow_path"] == ".github/workflows/ci.yml"
     assert "safe, recognizable pattern" in result["message"]
+
+
+@pytest.mark.asyncio
+async def test_low_risk_fix_requires_approval_even_when_demo_gates_disabled(monkeypatch, db_session):
+    from app.core.config import settings
+    monkeypatch.setattr(settings, "ENABLE_HITL", False)
+    failure = await _failure(db_session, label="npm_missing_test_script")
+
+    def unexpected(*args, **kwargs):
+        raise AssertionError("No GitHub reads or writes before explicit approval")
+    monkeypatch.setattr(fix_pr_service.github_tool, "get_default_branch", unexpected)
+    monkeypatch.setattr(fix_pr_service.github_tool, "create_branch", unexpected)
+    response = await fix_pr_service.create_fix_pr_for_failure(db_session, failure.id, {"username": "alice"})
+    assert response["status"] == "approval_required"
+    approval = await db_session.get(ApprovalRequest, response["approval_id"])
+    assert approval.status == "pending" and approval.expires_at is not None

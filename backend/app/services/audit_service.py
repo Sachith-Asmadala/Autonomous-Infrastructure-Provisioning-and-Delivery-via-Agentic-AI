@@ -100,10 +100,12 @@ def _redact_sensitive_values(data: Any, depth: int = 0) -> Any:
     elif isinstance(data, (list, tuple)):
         return [_redact_sensitive_values(item, depth + 1) for item in data]
     elif isinstance(data, str):
+        from app.tools.github_tool import clean_workflow_log
+
         # Redact inline token patterns (very basic)
         if any(pattern in data for pattern in ["ghp_", "gho_", "ghu_", "ghs_", "ghr_", "sk-", "sk_"]):
             return "[REDACTED]"
-        return data
+        return clean_workflow_log(data)
     return data
 
 

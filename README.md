@@ -209,7 +209,9 @@ make docker-logs
 make docker-down
 ```
 
-The frontend is exposed at `http://localhost:5173`, the backend at `http://localhost:8000`, and Flower at `http://localhost:5555`.
+The Compose frontend is exposed at `http://localhost` (port 80), with `/api/` proxied to the internal backend. PostgreSQL, Redis, backend, and Flower have no published host ports. `make frontend` still runs the local Vite server on port 5173.
+
+For automatic deployment to the existing EC2 instance after successful main-branch CI, see [EC2 deployment setup, validation, and rollback](docs/EC2_DEPLOYMENT.md).
 
 ## Web, Desktop, And Mobile Modes
 

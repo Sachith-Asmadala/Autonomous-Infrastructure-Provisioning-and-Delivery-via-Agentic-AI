@@ -9,6 +9,8 @@ RUN npm ci
 COPY . .
 ARG VITE_API_BASE_URL=
 ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
+# The container image is the authenticated web app, independent of local modes.
+ENV VITE_DESKTOP_MODE=false VITE_MOBILE_MODE=false VITE_DISABLE_AUTH=false
 RUN npm run build
 
 # ── Production stage ───────────────────────────────────────────────────────────

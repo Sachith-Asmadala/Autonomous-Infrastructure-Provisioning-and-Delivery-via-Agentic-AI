@@ -115,11 +115,11 @@ _trigger_workflow_hitl = _hitl_wrap(
 def get_all_tools(user_role: str = "developer") -> list:
     """Return tools available to the given user role.
 
-    Viewer accounts receive read-only tools. Developers receive read-only tools
-    plus lower-risk development/staging remediation. Operators and admins get
+    Developers receive read-only tools plus lower-risk development/staging
+    remediation. Admins get
     elevated tools, with high/critical operations still gated by HITL.
     """
-    normalized_role = (user_role or "viewer").lower()
+    normalized_role = (user_role or "").lower()
 
     read_only_tools = [
         # Docker — read-only
@@ -190,7 +190,7 @@ def get_all_tools(user_role: str = "developer") -> list:
         ),
     ]
 
-    # Operator/Admin-only tools — high/critical risk, wrapped with HITL gate
+    # Admin-only tools — high/critical risk, wrapped with HITL gate
     elevated_tools = [
         StructuredTool.from_function(
             func=_trigger_workflow_hitl,
@@ -231,10 +231,8 @@ def get_all_tools(user_role: str = "developer") -> list:
         ),
     ]
 
-    if normalized_role == "viewer":
-        return read_only_tools
     if normalized_role == "developer":
         return read_only_tools + developer_tools
-    if normalized_role in ("operator", "admin"):
+    if normalized_role == "admin":
         return read_only_tools + developer_tools + elevated_tools
-    return read_only_tools
+    return []

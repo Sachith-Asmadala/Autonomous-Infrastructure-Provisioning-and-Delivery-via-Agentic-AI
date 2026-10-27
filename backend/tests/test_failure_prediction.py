@@ -51,14 +51,14 @@ async def db_session() -> AsyncSession:
 
 @pytest_asyncio.fixture(autouse=True)
 async def override_db(db_session: AsyncSession):
-    result = await db_session.execute(select(User).where(User.email == "viewer@company.example.com"))
+    result = await db_session.execute(select(User).where(User.email == "member@company.example.com"))
     if result.scalar_one_or_none() is None:
         db_session.add(
             User(
-                email="viewer@company.example.com",
-                username="viewer",
-                hashed_password=hash_password("viewer123"),
-                role=UserRole.VIEWER,
+                email="member@company.example.com",
+                username="member",
+                hashed_password=hash_password("member123"),
+                role=UserRole.DEVELOPER,
                 is_active=True,
             )
         )
@@ -288,7 +288,7 @@ def test_seeded_developer_can_login_and_predict(monkeypatch):
     assert prediction_response.json()["label"] == "npm_missing_test_script"
 
 
-def test_seeded_viewer_cannot_predict(monkeypatch):
+def test_registered_developer_can_predict(monkeypatch):
     monkeypatch.setattr(service, "_model", _FakeModel())
     monkeypatch.setattr(
         service,
@@ -299,7 +299,7 @@ def test_seeded_viewer_cannot_predict(monkeypatch):
     with TestClient(app) as client:
         login_response = client.post(
             "/api/v1/auth/login",
-            json={"email": "viewer@company.example.com", "password": "viewer123"},
+            json={"email": "member@company.example.com", "password": "member123"},
         )
         prediction_response = client.post(
             "/api/v1/model/predict-failure",
@@ -307,4 +307,4 @@ def test_seeded_viewer_cannot_predict(monkeypatch):
         )
 
     assert login_response.status_code == 200
-    assert prediction_response.status_code == 403
+    assert prediction_response.status_code == 200

@@ -86,8 +86,10 @@ export default function ChatPage() {
 
   const sendViaHttpFallback = useCallback(
     async (message: string, assistantId: string) => {
+      const accountId = useAuthStore.getState().user?.id;
       try {
         const res = await agentService.chat(message, sessionId ?? undefined);
+        if (useAuthStore.getState().user?.id !== accountId) return;
         if (res.session_id) setSessionId(res.session_id);
         updateMessage(assistantId, {
           content: res.output || "No response returned by the agent.",
@@ -97,14 +99,17 @@ export default function ChatPage() {
           isStreaming: false,
         });
       } catch (err: any) {
+        if (useAuthStore.getState().user?.id !== accountId) return;
         updateMessage(assistantId, {
           content: `**Request failed:** ${err.response?.data?.detail || err.message || "Something went wrong."}`,
           isStreaming: false,
           error: true,
         });
       } finally {
-        activeAssistantIdRef.current = null;
-        setLoading(false);
+        if (useAuthStore.getState().user?.id === accountId) {
+          activeAssistantIdRef.current = null;
+          setLoading(false);
+        }
       }
     },
     [sessionId, setLoading, setSessionId, updateMessage],
@@ -173,7 +178,7 @@ export default function ChatPage() {
 
   return (
     <div className="flex h-full flex-col bg-surface-900">
-      <div className="shrink-0 border-b border-surface-600/80 bg-surface-900/90 px-4 py-3 backdrop-blur sm:py-4 xl:px-6">
+      <div className="workspace-page-header shrink-0">
         <div className="mx-auto flex max-w-6xl flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div className="flex items-center gap-3">
             <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-primary-500/30 bg-primary-500/10 shadow-glow">
@@ -192,13 +197,9 @@ export default function ChatPage() {
                 </span>
               </div>
               <p className="mt-1 text-xs text-ink-subtle">
-                {role.role === "viewer"
-                  ? "Read-only AI insight for operational awareness"
-                  : role.role === "operator"
-                    ? "Operational AI workspace with approval-gated production actions"
-                    : role.role === "admin"
-                      ? "Full AI control plane with user and approval governance"
-                      : "Developer AI workspace for diagnostics and staging workflows"}
+                {role.role === "admin"
+                  ? "Full AI control plane with user and approval governance"
+                  : "Developer AI workspace for diagnostics and staging workflows"}
               </p>
             </div>
           </div>
@@ -213,7 +214,7 @@ export default function ChatPage() {
                 size={13}
                 className="text-primary-500 dark:text-primary-300"
               />
-              Cookie auth
+              Approval protected
             </div>
             {messages.length > 0 && (
               <button

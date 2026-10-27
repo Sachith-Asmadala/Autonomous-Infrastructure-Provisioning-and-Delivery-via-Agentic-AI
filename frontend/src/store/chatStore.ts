@@ -34,5 +34,5 @@ export const useChatStore = create<ChatState>((set) => ({
     })),
   setLoading: (v) => set({ isLoading: v }),
   setSessionId: (id) => set({ sessionId: id }),
-  clearMessages: () => set({ messages: [], sessionId: null }),
+  clearMessages: () => set({ messages: [], sessionId: null, isLoading: false }),
 }));

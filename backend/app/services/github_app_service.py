@@ -8,7 +8,7 @@ from typing import Any
 
 import requests  # type: ignore[import-untyped]
 from jose import jwt
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -226,8 +226,8 @@ async def get_installation_for_repo(db: AsyncSession, repo_full_name: str) -> Re
     """Return the active installation row for a repository, if present."""
     result = await db.execute(
         select(RepositoryInstallation).where(
-            RepositoryInstallation.repo_full_name == repo_full_name,
+            func.lower(RepositoryInstallation.repo_full_name) == repo_full_name.lower(),
             RepositoryInstallation.status == "active",
-        )
+        ).order_by(RepositoryInstallation.created_at.desc()).limit(1)
     )
     return result.scalar_one_or_none()

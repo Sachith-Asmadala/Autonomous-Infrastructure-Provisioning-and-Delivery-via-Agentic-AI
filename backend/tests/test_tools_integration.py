@@ -4,13 +4,16 @@ from __future__ import annotations
 import json
 import uuid
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.core.security import create_access_token
 from app.main import app
 
+pytestmark = pytest.mark.usefixtures("isolated_app_database")
 
-def _auth_headers(role: str = "operator", username: str = "integration-user") -> dict[str, str]:
+
+def _auth_headers(role: str = "admin", username: str = "integration-user") -> dict[str, str]:
     token = create_access_token(
         {
             "sub": f"{username}-{role}",
@@ -164,7 +167,7 @@ def test_agent_orchestrate_requires_approval_for_workflow_pr(monkeypatch):
     with TestClient(app) as client:
         approvals_response = client.get(
             "/api/v1/approvals",
-            headers=_auth_headers(role="operator", username="ops"),
+            headers=_auth_headers(role="admin", username="ops"),
         )
 
     assert approvals_response.status_code == 200
@@ -212,7 +215,17 @@ def test_agent_websocket_streams_tokens(monkeypatch):
             websocket.send_json({"message": "Stream this reply.", "session_id": session_id})
 
             expected = "Test agent received: Stream this reply."
-            chunks = [websocket.receive_text() for _ in expected]
+            chunks = []
+            for _ in expected:
+                chunk = websocket.receive_text()
+                try:
+                    frame = json.loads(chunk)
+                except json.JSONDecodeError:
+                    chunks.append(chunk)
+                    continue
+                if isinstance(frame, dict) and "event" in frame:
+                    pytest.fail(f"Expected a text token, received WebSocket {frame['event']} event.", pytrace=False)
+                chunks.append(chunk)
             done = websocket.receive_json()
 
     assert "".join(chunks) == expected

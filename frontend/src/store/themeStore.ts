@@ -37,17 +37,17 @@ export function applyInitialTheme() {
     const raw = window.localStorage.getItem(THEME_STORAGE_KEY);
     const parsed = raw ? JSON.parse(raw) : null;
     const savedTheme = parsed?.state?.theme as ThemeMode | undefined;
-    applyTheme(savedTheme || "dark");
+    applyTheme(savedTheme || "light");
   } catch {
-    applyTheme("dark");
+    applyTheme("light");
   }
 }
 
 export const useThemeStore = create<ThemeState>()(
   persist(
     (set, get) => ({
-      theme: "dark",
-      resolvedTheme: "dark",
+      theme: "light",
+      resolvedTheme: "light",
       setTheme: (theme) => {
         const resolvedTheme = applyTheme(theme);
         set({ theme, resolvedTheme });

@@ -4,8 +4,18 @@ import {
   type DetectedStack,
   type FailurePrediction,
 } from "@/services/api";
-import { AlertCircle, FileCode2, Loader2, Sparkles, Wand2 } from "lucide-react";
-import { useState } from "react";
+import {
+  AlertCircle,
+  Check,
+  Copy,
+  Download,
+  FileCode2,
+  Loader2,
+  Sparkles,
+  Wand2,
+} from "lucide-react";
+import { useEffect, useState } from "react";
+import { useLocation } from "react-router-dom";
 
 const sampleLog = `npm ERR! Missing script: "test"
 npm ERR!
@@ -27,11 +37,13 @@ npm ERR!   npm run`,
   },
   {
     label: "npm missing lockfile",
-    value: "npm ERR! package-lock.json is required for reproducible installs when running npm ci.",
+    value:
+      "npm ERR! package-lock.json is required for reproducible installs when running npm ci.",
   },
   {
     label: "Python missing dependency",
-    value: "ModuleNotFoundError: No module named 'pydantic_settings' while loading app.core.config",
+    value:
+      "ModuleNotFoundError: No module named 'pydantic_settings' while loading app.core.config",
   },
   {
     label: "pytest not found",
@@ -39,7 +51,8 @@ npm ERR!   npm run`,
   },
   {
     label: "Docker build failed",
-    value: "Docker build failed: COPY requirements.txt /app/requirements.txt no such file or directory",
+    value:
+      "Docker build failed: COPY requirements.txt /app/requirements.txt no such file or directory",
   },
 ];
 
@@ -61,6 +74,13 @@ function stackSummary(stack: DetectedStack) {
 }
 
 export default function DiagnosisPage() {
+  const { hash } = useLocation();
+  useEffect(() => {
+    if (hash !== "#diagnose" && hash !== "#workflow") return;
+    const section = document.getElementById(hash.slice(1));
+    section?.scrollIntoView({ block: "nearest" });
+    section?.querySelector("textarea")?.focus({ preventScroll: true });
+  }, [hash]);
   const [logText, setLogText] = useState(sampleLog);
   const [prediction, setPrediction] = useState<FailurePrediction | null>(null);
   const [predicting, setPredicting] = useState(false);
@@ -72,6 +92,27 @@ export default function DiagnosisPage() {
   const [workflowPath, setWorkflowPath] = useState("");
   const [generating, setGenerating] = useState(false);
   const [workflowError, setWorkflowError] = useState("");
+  const [copyStatus, setCopyStatus] = useState("");
+
+  const copyWorkflow = async () => {
+    try {
+      await navigator.clipboard.writeText(workflowYaml);
+      setCopyStatus("Copied to clipboard");
+    } catch {
+      setCopyStatus("Copy unavailable. Select the YAML below or download it.");
+    }
+  };
+
+  const downloadWorkflow = () => {
+    const url = URL.createObjectURL(
+      new Blob([workflowYaml], { type: "text/yaml" }),
+    );
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = workflowPath.split("/").pop() || "ci.yml";
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
 
   const predictFailure = async () => {
     const trimmedLog = logText.trim();
@@ -99,6 +140,7 @@ export default function DiagnosisPage() {
 
     setGenerating(true);
     setWorkflowError("");
+    setCopyStatus("");
     try {
       const result = await cicdAssistantService.generateWorkflow(files);
       setStack(result.stack);
@@ -116,7 +158,7 @@ export default function DiagnosisPage() {
 
   return (
     <div className="flex h-full flex-col bg-surface-900">
-      <div className="shrink-0 border-b border-surface-600 bg-surface-900/90 px-4 py-4 backdrop-blur md:px-6">
+      <div className="workspace-page-header shrink-0">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-primary-500/30 bg-primary-500/10">
             <Sparkles
@@ -129,15 +171,15 @@ export default function DiagnosisPage() {
               CI/CD Assistant
             </h1>
             <p className="text-xs text-ink-subtle">
-              MVP testing for failure diagnosis and workflow generation
+              Understand build failures. Create a workflow that fits your stack.
             </p>
           </div>
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-4 py-5 md:px-6">
+      <div className="workspace-page-body min-h-0 flex-1 overflow-y-auto py-5">
         <div className="mx-auto grid max-w-6xl gap-5 xl:grid-cols-2">
-          <section className="card overflow-hidden">
+          <section id="diagnose" className="card min-w-0 overflow-hidden">
             <div className="border-b border-surface-600 px-5 py-4">
               <div className="flex items-center gap-2">
                 <AlertCircle
@@ -145,7 +187,7 @@ export default function DiagnosisPage() {
                   className="text-amber-600 dark:text-amber-300"
                 />
                 <h2 className="text-sm font-semibold text-ink">
-                  Failure Log Classifier
+                  Diagnose a failure
                 </h2>
               </div>
               <p className="mt-1 text-xs text-ink-subtle">
@@ -153,9 +195,22 @@ export default function DiagnosisPage() {
               </p>
             </div>
             <div className="space-y-4 p-4 sm:p-5">
+              <label
+                htmlFor="failure-log"
+                className="block text-xs font-medium text-ink-muted"
+              >
+                Build or workflow log
+              </label>
               <textarea
+                id="failure-log"
+                spellCheck={false}
+                disabled={predicting}
                 value={logText}
-                onChange={(event) => setLogText(event.target.value)}
+                onChange={(event) => {
+                  setLogText(event.target.value);
+                  setPrediction(null);
+                  setPredictionError("");
+                }}
                 className="input-field min-h-48 resize-y p-3 font-mono text-xs leading-5"
                 placeholder="Paste CI/CD log text here"
               />
@@ -164,6 +219,7 @@ export default function DiagnosisPage() {
                   <button
                     key={sample.label}
                     type="button"
+                    disabled={predicting}
                     onClick={() => {
                       setLogText(sample.value);
                       setPrediction(null);
@@ -248,7 +304,7 @@ export default function DiagnosisPage() {
             </div>
           </section>
 
-          <section className="card overflow-hidden">
+          <section id="workflow" className="card min-w-0 overflow-hidden">
             <div className="border-b border-surface-600 px-5 py-4">
               <div className="flex items-center gap-2">
                 <FileCode2
@@ -256,7 +312,7 @@ export default function DiagnosisPage() {
                   className="text-blue-600 dark:text-blue-300"
                 />
                 <h2 className="text-sm font-semibold text-ink">
-                  Workflow Generator
+                  Generate a workflow
                 </h2>
               </div>
               <p className="mt-1 text-xs text-ink-subtle">
@@ -265,9 +321,25 @@ export default function DiagnosisPage() {
               </p>
             </div>
             <div className="space-y-4 p-4 sm:p-5">
+              <label
+                htmlFor="repository-files"
+                className="block text-xs font-medium text-ink-muted"
+              >
+                Repository files · one path per line
+              </label>
               <textarea
+                id="repository-files"
+                spellCheck={false}
+                disabled={generating}
                 value={fileList}
-                onChange={(event) => setFileList(event.target.value)}
+                onChange={(event) => {
+                  setFileList(event.target.value);
+                  setStack(null);
+                  setWorkflowYaml("");
+                  setWorkflowPath("");
+                  setWorkflowError("");
+                  setCopyStatus("");
+                }}
                 className="input-field min-h-48 resize-y p-3 font-mono text-xs leading-5"
                 placeholder={"package.json\nsrc/App.tsx\nDockerfile"}
               />
@@ -321,9 +393,40 @@ export default function DiagnosisPage() {
               )}
 
               {workflowYaml && (
-                <pre className="max-h-96 max-w-full overflow-auto rounded-2xl border border-surface-600 bg-surface-950 p-4 text-xs leading-5 text-ink">
-                  <code>{workflowYaml}</code>
-                </pre>
+                <div className="space-y-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={copyWorkflow}
+                      className="btn-secondary text-xs"
+                    >
+                      {copyStatus === "Copied to clipboard" ? (
+                        <Check size={14} />
+                      ) : (
+                        <Copy size={14} />
+                      )}{" "}
+                      Copy YAML
+                    </button>
+                    <button
+                      type="button"
+                      onClick={downloadWorkflow}
+                      className="btn-secondary text-xs"
+                    >
+                      <Download size={14} /> Download
+                    </button>
+                    <span role="status" className="text-xs text-ink-subtle">
+                      {copyStatus}
+                    </span>
+                  </div>
+                  <pre className="max-h-96 max-w-full overflow-auto rounded-2xl border border-surface-600 bg-surface-950 p-4 text-xs leading-5 text-ink">
+                    <code>{workflowYaml}</code>
+                  </pre>
+                  <p className="text-xs leading-5 text-ink-subtle">
+                    Review this workflow before adding it to your repository.
+                    Repository changes still go through a pull request and
+                    approval.
+                  </p>
+                </div>
               )}
             </div>
           </section>

@@ -24,8 +24,11 @@ This directory contains the project documentation for the Smart DevOps Assistant
 | --- | --- |
 | Run the app locally | [Startup Guide](../STARTUP_GUIDE.md) |
 | Explain the project to a supervisor | [Project README](../README.md), [Final Demo](FINAL_DEMO.md) |
+| Present the current Admin / Developer demo | [Demonstration Guide PDF](DEMONSTRATION_GUIDE.pdf), [editable print source](DEMONSTRATION_GUIDE.html) |
 | Understand backend and frontend architecture | [Architecture](ARCHITECTURE.md) |
 | Explain deterministic multi-agent routing | [Agent Design](AGENT_DESIGN.md) |
+| Troubleshoot missing workflow failures | [Workflow Failure Guide](WORKFLOW_FAILURES.md) |
+| Troubleshoot Create Workflow PR from Repositories | [Workflow PR Guide](PULL_REQUEST_TROUBLESHOOTING.md) |
 | Use or test API endpoints | [API Reference](API_REFERENCE.md) |
 | Run a real GitHub repository demo | [GitHub E2E Checklist](GITHUB_E2E_CHECKLIST.md) |
 | Review approval and audit behavior | [Audit Logging](AUDIT_LOGGING.md) |

@@ -1,7 +1,7 @@
 """Pydantic request/response schemas."""
 import uuid
 from datetime import datetime
-from typing import Any, List, Optional
+from typing import Any, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
@@ -71,8 +71,19 @@ class AdminCreateUser(BaseModel):
     email: EmailStr
     username: str = Field(..., min_length=3, max_length=50)
     password: str = Field(..., min_length=8)
-    role: UserRole = UserRole.DEVELOPER
+    role: Literal[UserRole.DEVELOPER] = UserRole.DEVELOPER
     is_active: bool = True
+
+
+class UserStatusChangeRequest(BaseModel):
+    is_active: bool
+
+
+class UserStatusApprovalOut(BaseModel):
+    approval_id: uuid.UUID
+    user: UserOut
+    is_active: bool
+    status: Literal["approval_required"] = "approval_required"
 
 
 class RoleProfile(BaseModel):
@@ -108,6 +119,8 @@ class ApprovalRequestOut(BaseModel):
     decided_by: Optional[str] = None
     decision_note: Optional[str] = None
     decided_at: Optional[datetime] = None
+    can_approve: bool = False
+    can_reject: bool = False
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -123,6 +136,8 @@ class ExecutionOut(BaseModel):
     started_at: datetime
     completed_at: Optional[datetime] = None
     source: Optional[str] = None
+    approval_decided_by: Optional[str] = None
+    approval_status: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -131,6 +146,9 @@ class WorkflowFailureOut(BaseModel):
     id: uuid.UUID
     repo_full_name: str
     workflow_run_id: int
+    requested_by: Optional[str] = None
+    diagnosis_error: Optional[str] = None
+    has_pending_approval: Optional[bool] = None
     workflow_name: Optional[str] = None
     branch: Optional[str] = None
     conclusion: str
@@ -146,6 +164,32 @@ class WorkflowFailureOut(BaseModel):
     updated_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class WorkflowFailureSyncRequest(BaseModel):
+    repo_full_name: str = Field(min_length=3, max_length=255, pattern=r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+    limit: int = Field(default=10, ge=1, le=20)
+
+
+class WorkflowFailureImportRequest(BaseModel):
+    repo_full_name: str = Field(min_length=3, max_length=255, pattern=r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+    workflow_run_id: int = Field(gt=0, le=9223372036854775807)
+    log_text: str = Field(min_length=1, max_length=200000)
+    workflow_name: Optional[str] = Field(default=None, max_length=255)
+    branch: Optional[str] = Field(default=None, max_length=255)
+
+
+class WorkflowFailureSyncResponse(BaseModel):
+    failures: list[WorkflowFailureOut]
+    imported: int
+    diagnosed: int
+    message: str
+
+
+class WorkflowFailureIntegrationStatus(BaseModel):
+    can_download_logs: bool
+    webhook_configured: bool
+    default_repository: Optional[str] = None
 
 
 class WorkflowFailureFixPRResponse(BaseModel):
@@ -244,3 +288,7 @@ class RepositoryWorkflowPRResponse(BaseModel):
     approval_required: Optional[bool] = None
     approval_id: Optional[uuid.UUID] = None
     message: Optional[str] = None
+    approval_status: Optional[str] = None
+    expires_at: Optional[datetime] = None
+    execution_id: Optional[uuid.UUID] = None
+    execution_status: Optional[str] = None

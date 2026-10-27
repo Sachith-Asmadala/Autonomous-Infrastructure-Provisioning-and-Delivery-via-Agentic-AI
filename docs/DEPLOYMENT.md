@@ -17,7 +17,7 @@ The core CI/CD features do not require Docker. Docker Compose is only a convenie
 
 Web mode keeps login, JWT cookies, RBAC, approvals, and audit logging. Desktop mode sets `DESKTOP_MODE=true` and `DISABLE_AUTH=true`, opens as `Desktop User`, hides Users & Roles and Sign out, bypasses JWT/RBAC for local use, and keeps audit records under `desktop_user`.
 
-The repository deploy workflow is optional. If AWS and EC2 secrets are not configured, the workflow records a skipped deployment and exits successfully so ordinary CI does not fail.
+The repository deployment workflow uses SSH to the existing EC2 Compose deployment after a successful `CI Pipeline` push run on `main`. It requires three EC2 repository secrets and a public SSH host identity variable; missing settings fail deployment while CI remains a separate workflow. See [EC2 setup, validation, troubleshooting, and rollback](EC2_DEPLOYMENT.md). AWS credentials and ECR are not required.
 
 ## 2. Runtime Components
 
@@ -58,7 +58,7 @@ Backend:
 | `DATABASE_URL` | SQLAlchemy database URL. |
 | `SECRET_KEY` | JWT signing secret. Must be strong outside local demo. |
 | `ALLOWED_ORIGINS` | Comma-separated or JSON list of frontend origins. |
-| `COOKIE_SECURE` | Should be true behind HTTPS. |
+| `COOKIE_SECURE` | Explicitly controls the cookie's Secure flag in every environment. Use true behind HTTPS. |
 | `COOKIE_SAMESITE` | `lax`, `strict`, or `none`. |
 | `DESKTOP_MODE` | Enables local desktop behavior when true. Defaults to false. |
 | `DISABLE_AUTH` | Bypasses JWT/RBAC when true. Defaults to false. |
@@ -82,6 +82,15 @@ Frontend:
 | `VITE_DESKTOP_MODE` | Opens the frontend without login and displays Desktop User when true. |
 | `VITE_MOBILE_MODE` | Enables mobile packaging behavior for Capacitor builds. |
 | `VITE_DISABLE_AUTH` | Frontend-side auth bypass flag for local packaged demos only. |
+
+The current EC2 demo at `http://3.27.37.180/` uses `ENVIRONMENT=production`,
+`COOKIE_SECURE=false`, and `COOKIE_SAMESITE=lax`. The explicit `COOKIE_SECURE`
+setting controls login, refresh, and logout cookies; `ENVIRONMENT` does not
+override it. This allows the browser to send its HttpOnly authentication cookie
+to `/api/v1/auth/me` and the agent WebSocket over the demo's HTTP connection.
+Authentication, RBAC, JWT validation, HttpOnly, and SameSite remain enabled.
+When HTTPS is added, change `COOKIE_SECURE` back to `true` in the deployed backend
+environment and restart/recreate the backend so the new setting takes effect.
 
 Desktop production frontend env:
 
@@ -205,7 +214,53 @@ Required runtime artifacts:
 
 If the artifacts are unavailable, prediction endpoints return service-unavailable style errors instead of silently guessing.
 
-## 8. Scaling Notes
+## 8. GitHub Releases and service health
+
+`.github/workflows/release.yml` publishes releases when a `vMAJOR.MINOR.PATCH`
+tag is pushed. It rejects malformed versions and leading zeros, checks the tagged
+commit against fetched main history, and generates release notes with GitHub's
+built-in token. Existing tags and releases are never overwritten. The workflow
+does not upload application archives or environment files and requires no PAT.
+
+Create release tags only for a revision that has passed CI, completed deployment,
+and passed the public frontend/proxied API checks. The release workflow validates
+tag format and main ancestry; the operator verifies deployment before tagging.
+
+`.github/workflows/packages.yml` publishes the backend and frontend Docker images
+to GitHub Packages (GHCR) on the same version tags. It verifies main ancestry and
+requires successful main CI for the exact tagged commit before publishing. The
+images are built with the existing Dockerfiles, including Python/npm dependencies;
+the backend image also supports the Celery worker and Flower commands. Environment
+files stay excluded by the existing Docker ignore rules.
+
+Image names are the lowercase repository path with `-backend` or `-frontend`:
+
+```text
+ghcr.io/malithi2001/autonomous-infrastructure-provisioning-and-delivery-via-agentic-ai-backend:v1.0.0
+ghcr.io/malithi2001/autonomous-infrastructure-provisioning-and-delivery-via-agentic-ai-frontend:v1.0.0
+```
+
+Each new image also receives a `sha-<full-commit-sha>` tag and OCI source, revision,
+and version labels. Existing version images are preserved when a job is rerun.
+Registry authentication uses the built-in `GITHUB_TOKEN` with `packages: write`;
+no additional PAT or registry password secret is needed. New GHCR packages default
+to private visibility; authenticated users with package access can pull them. A
+package owner can change visibility in GitHub's package settings if public pulls
+are desired. EC2 continues using its current CI-gated build/deployment workflow.
+
+To publish an existing release without moving its Git tag or changing its release:
+
+```bash
+gh workflow run packages.yml --ref main -f release_tag=v1.0.0
+```
+
+Compose health checks match each service: backend HTTP health, PostgreSQL
+readiness, Redis ping, the Celery worker's own node ping, Flower's internal
+`/flower/healthcheck`, and the frontend's HTTP root. Worker and Flower override the
+backend image's inherited HTTP probe, which would otherwise report them as
+unhealthy even when their actual services work.
+
+## 9. Scaling Notes
 
 For a stronger deployment:
 

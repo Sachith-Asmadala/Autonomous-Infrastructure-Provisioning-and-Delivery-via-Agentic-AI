@@ -224,9 +224,8 @@ The registry creates role-filtered LangChain tools for the legacy chat path.
 
 Role behavior:
 
-- viewer: read-only tools,
 - developer: read-only plus lower-risk development tools,
-- operator/admin: elevated tools with human approval where needed,
+- admin: elevated tools with human approval where needed,
 - admin: all backend permissions through RBAC.
 
 High-risk wrappers raise `HITLApprovalRequired` instead of executing immediately when HITL is enabled.

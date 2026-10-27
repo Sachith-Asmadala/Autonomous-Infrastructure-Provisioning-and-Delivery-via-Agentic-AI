@@ -201,8 +201,8 @@ The backend first checks whether the user has permission to call an endpoint. If
 For example:
 
 - A developer can diagnose logs.
-- An operator/admin can create workflow PRs through protected endpoints.
-- An operator/admin can decide approvals.
+- An admin can create workflow PRs through protected endpoints.
+- An admin can decide approvals.
 - Admin has all permissions.
 
 ## 8. GitHub Safety

@@ -29,7 +29,11 @@ export function ChatComposer({
   };
 
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key === "Enter" && !event.shiftKey) {
+    if (
+      event.key === "Enter" &&
+      !event.shiftKey &&
+      !event.nativeEvent.isComposing
+    ) {
       event.preventDefault();
       onSubmit();
     }
@@ -42,14 +46,15 @@ export function ChatComposer({
     >
       <div className="mx-auto flex max-w-5xl items-end gap-3 rounded-2xl border border-surface-600 bg-surface-800/90 p-2 shadow-panel focus-within:border-primary-500/70">
         <textarea
+          aria-label="Message the DevOps assistant"
           ref={textareaRef}
           value={value}
           onChange={(event) => onChange(event.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Ask the DevOps agent to inspect, explain, or execute…"
+          placeholder="Ask about a failure, workflow, or next step…"
           rows={1}
           disabled={disabled}
-          className="min-h-11 flex-1 resize-none bg-transparent px-3 py-3 text-sm text-ink outline-none placeholder:text-ink-faint disabled:cursor-not-allowed"
+          className="min-h-11 min-w-0 flex-1 resize-none bg-transparent px-3 py-3 text-sm text-ink outline-none placeholder:text-ink-faint disabled:cursor-not-allowed"
           style={{ maxHeight: "140px" }}
         />
         <button

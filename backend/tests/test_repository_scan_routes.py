@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from app.api.routes import repositories
+from app.api.routes import approvals, repositories
 from app.core.database import Base, get_db
 from app.core.security import create_access_token
 from app.models.models import ApprovalRequest, Execution, RepositoryInstallation
@@ -25,6 +25,7 @@ TestSession = async_sessionmaker(test_engine, expire_on_commit=False)
 def _build_repository_app() -> FastAPI:
     test_app = FastAPI(title="Repository Scan Test App")
     test_app.include_router(repositories.router, prefix="/api/v1/repositories")
+    test_app.include_router(approvals.router, prefix="/api/v1/approvals")
     return test_app
 
 
@@ -250,6 +251,7 @@ async def test_scan_repository_uses_installation_token_when_installed(monkeypatc
     )
     await db_session.flush()
     monkeypatch.setattr(repositories, "get_installation_access_token", lambda installation_id: "installation-token")
+    monkeypatch.setattr(approvals, "get_installation_access_token", lambda installation_id: "installation-token")
 
     def _fake_get_repository_analysis_inputs(
         repo_full_name: str,
@@ -282,7 +284,7 @@ def test_create_workflow_pr_requires_write_permission(monkeypatch):
     ) -> dict:
         raise AssertionError("create_workflow_pr should not be called")
 
-    monkeypatch.setattr(repositories, "create_workflow_pr", _unexpected_create_workflow_pr)
+    monkeypatch.setattr(github_tool, "create_workflow_pr", _unexpected_create_workflow_pr)
 
     with TestClient(app) as client:
         response = client.post(
@@ -291,7 +293,7 @@ def test_create_workflow_pr_requires_write_permission(monkeypatch):
             json={"repo_full_name": "octo-org/demo-app"},
         )
 
-    assert response.status_code == 403
+    assert response.status_code == 401
 
 
 @pytest.mark.asyncio
@@ -324,42 +326,38 @@ async def test_create_workflow_pr_returns_pr_details_and_audits(monkeypatch, db_
             "pull_request": {"html_url": "https://github.com/octo-org/demo-app/pull/7"},
         }
 
-    monkeypatch.setattr(repositories, "create_workflow_pr", _fake_create_workflow_pr)
+    monkeypatch.setattr(github_tool, "create_workflow_pr", _fake_create_workflow_pr)
 
     with TestClient(app) as client:
         response = client.post(
             "/api/v1/repositories/create-workflow-pr",
-            headers=_auth_headers("operator"),
+            headers=_auth_headers("admin"),
             json={
                 "repo_full_name": "octo-org/demo-app",
                 "overwrite_existing_workflow": True,
             },
         )
+        assert response.status_code == 200 and response.json()["approval_required"]
+        approval_id = response.json()["approval_id"]
+        decision = client.post(f"/api/v1/approvals/{approval_id}/decide",
+                               headers=_auth_headers("admin"), json={"approved": True})
+        assert decision.status_code == 200
+        response = client.get("/api/v1/repositories/workflow-pr-status",
+                              params={"repo_full_name": "octo-org/demo-app",
+                                      "overwrite_existing_workflow": True},
+                              headers=_auth_headers("admin"))
 
     assert response.status_code == 200
-    assert response.json() == {
-        "repo_full_name": "octo-org/demo-app",
-        "detected_stack": {
-            "language": "javascript",
-            "framework": "react",
-            "package_manager": "npm",
-            "has_docker": False,
-            "has_existing_workflows": False,
-            "recommended_workflow": "node-ci",
-            "project_dir": ".",
-            "detected_projects": [],
-            "ci_warnings": [],
-        },
-        "branch": "ai-cicd/setup-pipeline",
-        "workflow_path": ".github/workflows/ai-generated-ci.yml",
-        "pull_request_url": "https://github.com/octo-org/demo-app/pull/7",
-    }
+    assert response.json()["pull_request_url"] == "https://github.com/octo-org/demo-app/pull/7"
+    assert response.json()["status"] == "completed"
 
-    result = await db_session.execute(select(Execution).where(Execution.tool_name == "github_create_workflow_pr"))
+    result = await db_session.execute(select(Execution).where(
+        Execution.tool_name == "github_create_workflow_pr", Execution.source == "hitl",
+    ))
     execution = result.scalar_one()
     assert execution.status == "completed"
     assert execution.requested_by == "repo-scan-test-user"
-    assert "https://github.com/octo-org/demo-app/pull/7" in (execution.summary or "")
+    assert "https://github.com/octo-org/demo-app/pull/7" in (execution.details or "")
     assert '"overwrite_existing_workflow": true' in (execution.tool_input or "")
 
 
@@ -370,12 +368,12 @@ async def test_create_workflow_pr_creates_approval_when_hitl_enabled(monkeypatch
     def _unexpected_create_workflow_pr(*args, **kwargs) -> dict:
         raise AssertionError("create_workflow_pr should wait for approval")
 
-    monkeypatch.setattr(repositories, "create_workflow_pr", _unexpected_create_workflow_pr)
+    monkeypatch.setattr(github_tool, "create_workflow_pr", _unexpected_create_workflow_pr)
 
     with TestClient(app) as client:
         response = client.post(
             "/api/v1/repositories/create-workflow-pr",
-            headers=_auth_headers("operator"),
+            headers=_auth_headers("admin"),
             json={
                 "repo_full_name": "octo-org/demo-app",
                 "overwrite_existing_workflow": True,
@@ -421,6 +419,7 @@ async def test_create_workflow_pr_uses_installation_token_when_installed(monkeyp
     )
     await db_session.flush()
     monkeypatch.setattr(repositories, "get_installation_access_token", lambda installation_id: "installation-token")
+    monkeypatch.setattr(approvals, "get_installation_access_token", lambda installation_id: "installation-token")
 
     def _fake_create_workflow_pr(
         repo_full_name: str,
@@ -446,14 +445,23 @@ async def test_create_workflow_pr_uses_installation_token_when_installed(monkeyp
             "pull_request_url": "https://github.com/octo-org/demo-app/pull/8",
         }
 
-    monkeypatch.setattr(repositories, "create_workflow_pr", _fake_create_workflow_pr)
+    monkeypatch.setattr(github_tool, "create_workflow_pr", _fake_create_workflow_pr)
 
     with TestClient(app) as client:
         response = client.post(
             "/api/v1/repositories/create-workflow-pr",
-            headers=_auth_headers("operator"),
+            headers=_auth_headers("admin"),
             json={"repo_full_name": "octo-org/demo-app"},
         )
+        assert response.status_code == 200 and response.json()["approval_required"]
+        approval_id = response.json()["approval_id"]
+        decision = client.post(f"/api/v1/approvals/{approval_id}/decide",
+                               headers=_auth_headers("admin"), json={"approved": True})
+        assert decision.status_code == 200
+        response = client.get("/api/v1/repositories/workflow-pr-status",
+                              params={"repo_full_name": "octo-org/demo-app",
+                                      "overwrite_existing_workflow": False},
+                              headers=_auth_headers("admin"))
 
     assert response.status_code == 200
     assert response.json()["pull_request_url"] == "https://github.com/octo-org/demo-app/pull/8"
@@ -470,19 +478,31 @@ async def test_create_workflow_pr_returns_clear_github_error_and_audits(monkeypa
     ) -> dict:
         raise GitHubToolError("Branch 'ai-cicd/setup-pipeline' already exists.")
 
-    monkeypatch.setattr(repositories, "create_workflow_pr", _fake_create_workflow_pr)
+    monkeypatch.setattr(github_tool, "create_workflow_pr", _fake_create_workflow_pr)
 
     with TestClient(app) as client:
         response = client.post(
             "/api/v1/repositories/create-workflow-pr",
-            headers=_auth_headers("operator"),
+            headers=_auth_headers("admin"),
             json={"repo_full_name": "octo-org/demo-app"},
         )
+        assert response.status_code == 200 and response.json()["approval_required"]
+        approval_id = response.json()["approval_id"]
+        decision = client.post(f"/api/v1/approvals/{approval_id}/decide",
+                               headers=_auth_headers("admin"), json={"approved": True})
+        assert decision.status_code == 200
+        response = client.get("/api/v1/repositories/workflow-pr-status",
+                              params={"repo_full_name": "octo-org/demo-app",
+                                      "overwrite_existing_workflow": False},
+                              headers=_auth_headers("admin"))
 
-    assert response.status_code == 400
-    assert response.json() == {"detail": "Branch 'ai-cicd/setup-pipeline' already exists."}
+    assert response.status_code == 200
+    assert response.json()["status"] == "failed"
+    assert "already exists" in response.json()["message"]
 
-    result = await db_session.execute(select(Execution).where(Execution.tool_name == "github_create_workflow_pr"))
+    result = await db_session.execute(select(Execution).where(
+        Execution.tool_name == "github_create_workflow_pr", Execution.source == "hitl",
+    ))
     execution = result.scalar_one()
     assert execution.status == "failed"
     assert "already exists" in (execution.details or "")

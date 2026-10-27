@@ -1,115 +1,100 @@
-name: CD — Deploy to AWS EC2
+name: Deploy to AWS EC2
 
 on:
-  push:
+  workflow_run:
+    workflows: ["CI Pipeline"]
+    types: [completed]
     branches: [main]
   workflow_dispatch:
-    inputs:
-      environment:
-        description: "Target environment"
-        required: true
-        default: "staging"
-        type: choice
-        options: [staging, production]
+
+permissions:
+  contents: read
+  actions: read
+
+# Cancelling a runner cannot reliably cancel its remote SSH process.
+# Let active deployments finish; the EC2 script also takes a server-side lock.
+concurrency:
+  group: production-deployment
+  cancel-in-progress: false
 
 jobs:
   deploy:
-    name: Deploy to ${{ github.event.inputs.environment || 'staging' }}
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'main' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ubuntu-latest
-    environment: ${{ github.event.inputs.environment || 'staging' }}
-    permissions:
-      contents: read
-      id-token: write
-    env:
-      AWS_REGION: ${{ vars.AWS_REGION || secrets.AWS_REGION || secrets.AWS_DEFAULT_REGION || 'us-east-1' }}
-
+    timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - name: Select the latest main revision with passing CI
+        id: revision
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const repo = context.repo;
+            const { data: branch } = await github.rest.repos.getBranch({ ...repo, branch: 'main' });
+            const sha = branch.commit.sha;
+            if (context.eventName === 'workflow_run' && context.payload.workflow_run.head_sha !== sha) {
+              core.notice('Main has advanced; a later successful CI run must deploy it.');
+              core.setOutput('ready', 'false');
+              return;
+            }
+            const { data } = await github.rest.actions.listWorkflowRuns({
+              ...repo, workflow_id: 'ci.yml', branch: 'main', event: 'push', head_sha: sha, per_page: 1
+            });
+            const run = data.workflow_runs[0];
+            if (!run || run.status !== 'completed' || run.conclusion !== 'success') {
+              core.setFailed('The latest main revision must have a successful CI Pipeline push run, including manual deployments.');
+              return;
+            }
+            core.setOutput('sha', sha);
+            core.setOutput('ready', 'true');
 
-      - name: Validate deployment configuration
-        id: deploy-config
+      - name: Check out the tested revision
+        if: steps.revision.outputs.ready == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.revision.outputs.sha }}
+          persist-credentials: false
+
+      - name: Deploy over verified SSH
+        if: steps.revision.outputs.ready == 'true'
         env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           EC2_HOST: ${{ secrets.EC2_HOST }}
           EC2_USER: ${{ secrets.EC2_USER }}
           EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+          # Public host identity, obtained through an already trusted EC2 session.
+          EC2_KNOWN_HOSTS: ${{ vars.EC2_KNOWN_HOSTS }}
+          DEPLOY_SHA: ${{ steps.revision.outputs.sha }}
+        shell: bash
         run: |
-          missing=0
+          set -euo pipefail
+          for name in EC2_HOST EC2_USER EC2_SSH_KEY EC2_KNOWN_HOSTS; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Missing deployment setting: $name"
+              exit 1
+            fi
+          done
+          [[ "$EC2_HOST" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*$ ]]
+          [[ "$EC2_USER" =~ ^[a-zA-Z_][a-zA-Z0-9_-]*$ ]]
+          [[ "$DEPLOY_SHA" =~ ^[0-9a-f]{40}$ ]]
+          ssh_dir=$(mktemp -d)
+          trap 'rm -rf "$ssh_dir"' EXIT
+          chmod 700 "$ssh_dir"
+          printf '%s\n' "$EC2_SSH_KEY" > "$ssh_dir/key"
+          printf '%s\n' "$EC2_KNOWN_HOSTS" > "$ssh_dir/known_hosts"
+          chmod 600 "$ssh_dir/key" "$ssh_dir/known_hosts"
+          ssh -i "$ssh_dir/key" \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$ssh_dir/known_hosts" -o ConnectTimeout=20 \
+            -o ServerAliveInterval=30 -o ServerAliveCountMax=6 \
+            "$EC2_USER@$EC2_HOST" "bash -s -- $DEPLOY_SHA" < scripts/deploy_ec2.sh
 
-          if [ -z "$AWS_REGION" ]; then
-            echo "::notice::AWS region is missing. Set repository variable AWS_REGION or secret AWS_REGION/AWS_DEFAULT_REGION to enable deployment."
-            missing=1
-          fi
-
-          if [ -z "$AWS_ACCESS_KEY_ID" ] || [ -z "$AWS_SECRET_ACCESS_KEY" ]; then
-            echo "::notice::AWS credentials are missing. Set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY secrets to enable deployment."
-            missing=1
-          fi
-
-          if [ -z "$EC2_HOST" ] || [ -z "$EC2_USER" ] || [ -z "$EC2_SSH_KEY" ]; then
-            echo "::notice::EC2 SSH deployment secrets are missing. Set EC2_HOST, EC2_USER, and EC2_SSH_KEY to enable deployment."
-            missing=1
-          fi
-
-          if [ "$missing" -eq 1 ]; then
-            echo "deploy_ready=false" >> "$GITHUB_OUTPUT"
-            {
-              echo "## Deployment skipped"
-              echo ""
-              echo "AWS/EC2 deployment secrets are not configured for this repository."
-              echo "The workflow stays successful so CI can pass; configure the secrets only when real deployment is required."
-            } >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-
-          echo "deploy_ready=true" >> "$GITHUB_OUTPUT"
-
-      - name: Configure AWS credentials
-        if: steps.deploy-config.outputs.deploy_ready == 'true'
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Login to Amazon ECR
-        if: steps.deploy-config.outputs.deploy_ready == 'true'
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
-
-      - name: Build, tag, and push backend image
-        if: steps.deploy-config.outputs.deploy_ready == 'true'
+      - name: Deployment summary
+        if: success() && steps.revision.outputs.ready == 'true'
         env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          IMAGE_TAG: ${{ github.sha }}
-        run: |
-          docker build -t $ECR_REGISTRY/devops-assistant-backend:$IMAGE_TAG ./backend
-          docker push $ECR_REGISTRY/devops-assistant-backend:$IMAGE_TAG
-
-      - name: Build, tag, and push frontend image
-        if: steps.deploy-config.outputs.deploy_ready == 'true'
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          IMAGE_TAG: ${{ github.sha }}
-        run: |
-          docker build -t $ECR_REGISTRY/devops-assistant-frontend:$IMAGE_TAG ./frontend
-          docker push $ECR_REGISTRY/devops-assistant-frontend:$IMAGE_TAG
-
-      - name: Deploy to EC2 via SSH
-        if: steps.deploy-config.outputs.deploy_ready == 'true'
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          script: |
-            cd ~/devops-assistant
-            git pull origin main
-            docker compose pull
-            docker compose up -d --remove-orphans
-            docker system prune -f
-
-      - name: Skip deployment
-        if: steps.deploy-config.outputs.deploy_ready != 'true'
-        run: echo "Deployment skipped because AWS/EC2 secrets are not configured."
+          DEPLOY_SHA: ${{ steps.revision.outputs.sha }}
+        run: echo "Deployed revision $DEPLOY_SHA; frontend and proxied API health checks passed." >> "$GITHUB_STEP_SUMMARY"

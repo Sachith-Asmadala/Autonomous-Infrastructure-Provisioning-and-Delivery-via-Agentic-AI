@@ -24,6 +24,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from app.core.database import Base, get_db
 from app.core.security import create_access_token
 
+pytestmark = pytest.mark.usefixtures("isolated_app_database")
+
 # ── In-memory SQLite test DB ──────────────────────────────────────────────────
 
 TEST_DB_URL = "sqlite+aiosqlite:///:memory:"
@@ -205,19 +207,19 @@ class TestHITLApprovalFlow:
         assert resp.status_code in (401, 403)
 
     def test_list_pending_endpoint_returns_200(self, client: TestClient):
-        resp = client.get("/api/v1/approvals/", headers=_auth("viewer"))
+        resp = client.get("/api/v1/approvals/", headers=_auth("developer"))
         assert resp.status_code == 200
         assert isinstance(resp.json(), list)
 
-    def test_decide_endpoint_requires_operator(self, client: TestClient):
-        """developer role should be rejected from decide endpoint."""
+    def test_developer_decide_endpoint_hides_unknown_requests(self, client: TestClient):
+        """An unknown or unowned approval must not be available to a developer."""
         fake_id = str(uuid.uuid4())
         resp = client.post(
             f"/api/v1/approvals/{fake_id}/decide",
             json={"approved": True},
             headers=_auth("developer"),
         )
-        assert resp.status_code == 403
+        assert resp.status_code == 404
 
     def test_decide_endpoint_404_for_unknown_id(self, client: TestClient):
         fake_id = str(uuid.uuid4())
@@ -244,7 +246,7 @@ class TestHITLApprovalFlow:
             response = client.post(
                 "/api/v1/agent/chat",
                 json={"message": "deploy production"},
-                headers=_auth("operator"),
+                headers=_auth("admin"),
             )
 
         assert response.status_code == 200
@@ -253,7 +255,7 @@ class TestHITLApprovalFlow:
         assert body["approval_id"]
         assert "Approval required" in body["output"]
 
-        approvals_response = client.get("/api/v1/approvals/", headers=_auth("operator"))
+        approvals_response = client.get("/api/v1/approvals/", headers=_auth("admin"))
         assert approvals_response.status_code == 200
         approvals = approvals_response.json()
         assert any(item["id"] == body["approval_id"] and item["status"] == "pending" for item in approvals)
@@ -324,13 +326,17 @@ class TestPersistentMemory:
     @pytest.mark.asyncio
     async def test_delete_session_endpoint_clears_db(self, db_session: AsyncSession, client: TestClient):
         from app.services.memory_service import DBChatMessageHistory
+        from app.api.routes.agent import _scoped_chat_session
+        from app.core.security import decode_token
 
         sid = str(uuid.uuid4())
-        history = DBChatMessageHistory(session_id=sid, db=db_session)
+        auth_headers = _auth()
+        payload = decode_token(auth_headers["Authorization"].split(" ", 1)[1])
+        history = DBChatMessageHistory(session_id=_scoped_chat_session(sid, payload), db=db_session)
         await history.aadd_messages("will be deleted", "yes")
         await db_session.commit()
 
-        resp = client.delete(f"/api/v1/agent/session/{sid}", headers=_auth())
+        resp = client.delete(f"/api/v1/agent/session/{sid}", headers=auth_headers)
         assert resp.status_code == 204
 
         # Verify DB cleared (reload via same session)
@@ -490,6 +496,8 @@ class TestWebSocketStreaming:
                         raw = ws.receive_text()
                         try:
                             frame = json.loads(raw)
+                            if isinstance(frame, dict) and frame.get("event") == "error":
+                                pytest.fail("WebSocket streaming returned an error frame.", pytrace=False)
                             if isinstance(frame, dict) and frame.get("event") == "done":
                                 done_event = frame
                                 break
@@ -533,7 +541,7 @@ class TestExecutionAuditTrail:
         assert "nginx" in row.summary
 
     def test_executions_endpoint_returns_list(self, client: TestClient):
-        resp = client.get("/api/v1/executions/", headers=_auth("viewer"))
+        resp = client.get("/api/v1/executions/", headers=_auth("developer"))
         assert resp.status_code == 200
         assert isinstance(resp.json(), list)
 
@@ -543,7 +551,7 @@ class TestExecutionAuditTrail:
 
     def test_single_execution_404_for_unknown(self, client: TestClient):
         fake_id = str(uuid.uuid4())
-        resp = client.get(f"/api/v1/executions/{fake_id}", headers=_auth("viewer"))
+        resp = client.get(f"/api/v1/executions/{fake_id}", headers=_auth("developer"))
         assert resp.status_code == 404
 
     def test_chat_creates_execution_record(self, client: TestClient):

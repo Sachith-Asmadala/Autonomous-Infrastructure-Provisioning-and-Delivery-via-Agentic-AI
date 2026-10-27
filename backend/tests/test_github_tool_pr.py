@@ -204,8 +204,8 @@ def test_create_workflow_pr_uses_timestamp_branch_when_default_exists(fake_repo,
 
     result = github_tool.create_workflow_pr("octo-org/demo-app")
 
-    assert result["branch"] == "ai-cicd/setup-pipeline-20260531120000"
-    assert fake_repo.created_files[0]["branch"] == "ai-cicd/setup-pipeline-20260531120000"
+    assert result["branch"].startswith("ai-cicd/setup-pipeline-20260531120000-")
+    assert fake_repo.created_files[0]["branch"] == result["branch"]
 
 
 def test_create_workflow_pr_can_overwrite_existing_generated_workflow(fake_repo):
@@ -377,3 +377,64 @@ def test_download_workflow_logs_reports_empty_archive(monkeypatch):
 
     with pytest.raises(github_tool.GitHubToolError, match="No workflow logs"):
         github_tool.download_workflow_logs("octo-org/demo-app", 123)
+
+
+def test_list_failed_workflow_runs_reads_public_metadata_and_includes_timeouts(monkeypatch):
+    monkeypatch.setattr(github_tool.settings, "GITHUB_TOKEN", "")
+    calls = []
+
+    class Response:
+        status_code = 200
+
+        def __init__(self, conclusion):
+            self.conclusion = conclusion
+
+        def json(self):
+            return {"workflow_runs": [{"id": 1 if self.conclusion == "failure" else 2,
+                                      "conclusion": self.conclusion, "created_at": "2026-10-08T00:00:00Z"}]}
+
+    def request(url, **kwargs):
+        assert url == "https://api.github.com/repos/owner/repo/actions/runs"
+        assert "Authorization" not in kwargs["headers"]
+        calls.append(kwargs["params"]["status"])
+        return Response(kwargs["params"]["status"])
+    monkeypatch.setattr(github_tool.requests, "get", request)
+    runs = github_tool.list_failed_workflow_runs("owner/repo")
+    assert calls == ["failure", "timed_out"] and [run["id"] for run in runs] == [2, 1]
+
+
+@pytest.mark.parametrize("repo", ["owner/repo?token=x", "owner/../repo", "../repo", "owner/..", "owner/repo#frag"])
+def test_github_repository_names_reject_path_and_query_injection(repo):
+    with pytest.raises(github_tool.GitHubToolError):
+        github_tool.list_failed_workflow_runs(repo)
+
+
+def test_pasted_workflow_logs_redact_short_passwords_and_connection_strings():
+    original = "PASSWORD=short-secret\nDATABASE_URL=postgresql://someone:private@db.example/test\nMissing test script"
+    cleaned = github_tool.clean_workflow_log(original)
+    assert "short-secret" not in cleaned and "someone:private" not in cleaned
+    assert "Missing test script" in cleaned
+
+
+def test_workflow_preflight_refuses_existing_file_before_branch_creation(fake_repo):
+    fake_repo.files[github_tool.WORKFLOW_PATH] = _Obj(sha="existing", decoded_content=b"name: Existing CI")
+    with pytest.raises(github_tool.GitHubToolError, match="Replace existing AI-generated workflow"):
+        github_tool.create_workflow_pr("octo-org/demo-app")
+    assert fake_repo.refs == {"main": "base-sha"}
+    assert fake_repo.created_files == fake_repo.pull_requests == []
+
+
+def test_workflow_preflight_refuses_no_changes_even_with_overwrite(fake_repo):
+    yaml = "name: Existing CI\n"
+    fake_repo.files[github_tool.WORKFLOW_PATH] = _Obj(sha="existing", decoded_content=yaml.encode())
+    with pytest.raises(github_tool.GitHubToolError, match="No new pull request is needed"):
+        github_tool.create_workflow_pr("octo-org", "demo-app", yaml, {}, overwrite_existing_workflow=True)
+    assert fake_repo.refs == {"main": "base-sha"}
+    assert fake_repo.updated_files == []
+
+
+def test_workflow_retry_branch_names_do_not_collide_in_same_second(fake_repo):
+    fake_repo.refs[github_tool.WORKFLOW_BRANCH] = "existing"
+    first = github_tool._workflow_branch_name(fake_repo)
+    second = github_tool._workflow_branch_name(fake_repo)
+    assert first != second and first.startswith(github_tool.WORKFLOW_BRANCH + "-")

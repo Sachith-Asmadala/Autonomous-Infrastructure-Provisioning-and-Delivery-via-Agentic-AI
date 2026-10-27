@@ -5,7 +5,7 @@ Flow
 ----
 1. Agent classifies an action as HIGH or CRITICAL risk.
 2. Agent calls ``create_approval_request()``.
-3. Operator/admin calls POST /api/v1/approvals/{id}/decide.
+3. An authorized reviewer calls POST /api/v1/approvals/{id}/decide.
 4. ``decide_approval()`` updates the record and (if approved) resumes
    the pending tool call by returning the stored payload.
 """
@@ -63,7 +63,7 @@ async def decide_approval(
     note: str | None = None,
 ) -> ApprovalRequest:
     """
-    Record an operator's approve/reject decision.
+    Record a reviewer's approve/reject decision.
 
     Returns the updated ApprovalRequest.  Raises 404 if not found,
     409 if already decided.

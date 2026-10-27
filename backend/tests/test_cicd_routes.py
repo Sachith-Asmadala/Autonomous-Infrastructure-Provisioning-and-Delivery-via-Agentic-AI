@@ -1,6 +1,7 @@
 """Tests for CI/CD repository analysis and workflow generation endpoints."""
 from __future__ import annotations
 
+import pytest
 import yaml
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -9,6 +10,8 @@ from app.api.routes import cicd
 from app.core.config import settings
 from app.core.security import create_access_token
 from app.services import audit_service
+
+pytestmark = pytest.mark.usefixtures("isolated_app_database")
 
 
 def _build_cicd_app() -> FastAPI:

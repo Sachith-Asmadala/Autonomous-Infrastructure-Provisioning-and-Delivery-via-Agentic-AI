@@ -7,11 +7,11 @@
 @layer base {
   :root {
     color-scheme: light;
-    --background: 210 40% 98%;
-    --foreground: 222 47% 11%;
-    --ink-muted: 215 20% 34%;
-    --ink-subtle: 215 16% 47%;
-    --ink-faint: 215 13% 62%;
+    --background: 210 20% 98%;
+    --foreground: 218 32% 16%;
+    --ink-muted: 216 16% 36%;
+    --ink-subtle: 216 12% 45%;
+    --ink-faint: 216 10% 51%;
     --card: 0 0% 100%;
     --card-foreground: 222 47% 11%;
     --popover: 0 0% 100%;
@@ -26,26 +26,26 @@
     --accent-foreground: 222 47% 11%;
     --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 100%;
-    --border: 214 32% 86%;
-    --input: 214 32% 86%;
+    --border: 214 20% 90%;
+    --input: 214 20% 86%;
     --ring: 150 62% 38%;
-    --surface-950: 215 33% 96%;
-    --surface-900: 214 43% 98%;
+    --surface-950: 216 22% 95%;
+    --surface-900: 216 22% 97%;
     --surface-800: 0 0% 100%;
-    --surface-700: 216 33% 94%;
-    --surface-600: 214 28% 86%;
-    --surface-500: 215 18% 72%;
+    --surface-700: 216 20% 95%;
+    --surface-600: 214 20% 89%;
+    --surface-500: 216 12% 70%;
     --shadow: 215 40% 30%;
-    --radius: 0.75rem;
+    --radius: 0.65rem;
   }
 
   .dark {
     color-scheme: dark;
-    --background: 215 28% 7%;
-    --foreground: 210 17% 88%;
-    --ink-muted: 215 13% 70%;
-    --ink-subtle: 215 10% 55%;
-    --ink-faint: 215 10% 40%;
+    --background: 220 24% 9%;
+    --foreground: 214 24% 93%;
+    --ink-muted: 216 16% 74%;
+    --ink-subtle: 216 13% 63%;
+    --ink-faint: 216 10% 52%;
     --card: 215 25% 10%;
     --card-foreground: 210 17% 88%;
     --popover: 215 25% 10%;
@@ -60,15 +60,15 @@
     --accent-foreground: 210 17% 88%;
     --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 100%;
-    --border: 215 14% 22%;
-    --input: 215 14% 22%;
+    --border: 218 18% 23%;
+    --input: 218 18% 26%;
     --ring: 148 62% 39%;
-    --surface-950: 216 28% 5%;
-    --surface-900: 215 28% 7%;
-    --surface-800: 215 25% 10%;
-    --surface-700: 215 18% 16%;
-    --surface-600: 215 14% 22%;
-    --surface-500: 215 10% 34%;
+    --surface-950: 220 25% 7%;
+    --surface-900: 220 24% 9%;
+    --surface-800: 219 23% 12%;
+    --surface-700: 218 21% 16%;
+    --surface-600: 218 18% 23%;
+    --surface-500: 216 12% 36%;
     --shadow: 0 0% 0%;
   }
 
@@ -131,33 +131,150 @@
     @apply bg-[radial-gradient(circle_at_12%_18%,rgba(37,164,97,0.18),transparent_26rem),radial-gradient(circle_at_86%_8%,rgba(59,130,246,0.14),transparent_24rem),linear-gradient(135deg,hsl(var(--surface-900)/0.20),hsl(var(--surface-900)/0.94))];
   }
   .card {
-    @apply rounded-2xl border border-surface-600 bg-surface-800 shadow-panel;
+    @apply rounded-xl border border-surface-600 bg-surface-800;
+    box-shadow: 0 2px 4px hsl(var(--shadow) / 0.025);
   }
   .glass-panel {
-    @apply rounded-3xl border border-surface-600/90 bg-surface-800/85 shadow-panel backdrop-blur;
+    @apply rounded-2xl border border-surface-600/90 bg-surface-800;
+    box-shadow: 0 8px 40px hsl(var(--shadow) / 0.06);
   }
   .input-field {
-    @apply w-full rounded-2xl border border-surface-600 bg-surface-900/80 text-sm text-ink outline-none transition placeholder:text-ink-faint focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20;
+    @apply w-full rounded-lg border border-surface-600 bg-surface-900 text-sm text-ink outline-none transition placeholder:text-ink-faint focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20;
   }
   .btn-primary {
-    @apply inline-flex items-center justify-center gap-2 rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-primary-950/20 transition hover:bg-primary-500 disabled:cursor-not-allowed disabled:bg-surface-600 disabled:text-ink-faint disabled:shadow-none;
+    @apply inline-flex items-center justify-center gap-2 rounded-lg bg-primary-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-primary-500 disabled:cursor-not-allowed disabled:bg-surface-600 disabled:text-ink-faint disabled:shadow-none;
   }
   .btn-secondary {
-    @apply inline-flex items-center justify-center gap-2 rounded-xl border border-surface-600 bg-surface-800 px-4 py-2.5 text-sm font-semibold text-ink transition hover:border-primary-500/40 hover:bg-primary-500/10 hover:text-primary-700 dark:hover:text-primary-200;
+    @apply inline-flex items-center justify-center gap-2 rounded-lg border border-surface-600 bg-surface-800 px-4 py-2.5 text-sm font-semibold text-ink transition hover:border-primary-500/40 hover:bg-primary-500/10 hover:text-primary-700 dark:hover:text-primary-200;
   }
   .btn-ghost {
-    @apply inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm text-ink-muted transition hover:bg-surface-700 hover:text-ink;
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm text-ink-muted transition hover:bg-surface-700 hover:text-ink;
   }
   .badge-success {
-    @apply inline-flex max-w-full items-center rounded-full border border-primary-500/30 bg-primary-500/10 px-2.5 py-1 text-xs font-medium text-primary-700 break-words dark:text-primary-200;
+    @apply inline-flex max-w-full items-center rounded-md border border-primary-500/30 bg-primary-500/10 px-2.5 py-0.5 text-[11px] font-medium text-primary-700 break-words dark:text-primary-200;
   }
   .badge-info {
-    @apply inline-flex max-w-full items-center rounded-full border border-blue-500/30 bg-blue-500/10 px-2.5 py-1 text-xs font-medium text-blue-700 break-words dark:text-blue-200;
+    @apply inline-flex max-w-full items-center rounded-md border border-blue-500/30 bg-blue-500/10 px-2.5 py-0.5 text-[11px] font-medium text-blue-700 break-words dark:text-blue-200;
   }
   .badge-warning {
-    @apply inline-flex max-w-full items-center rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-amber-700 break-words dark:text-amber-200;
+    @apply inline-flex max-w-full items-center rounded-md border border-amber-500/30 bg-amber-500/10 px-2.5 py-0.5 text-[11px] font-medium text-amber-700 break-words dark:text-amber-200;
   }
   .badge-error {
-    @apply inline-flex max-w-full items-center rounded-full border border-red-500/30 bg-red-500/10 px-2.5 py-1 text-xs font-medium text-red-700 break-words dark:text-red-200;
+    @apply inline-flex max-w-full items-center rounded-md border border-red-500/30 bg-red-500/10 px-2.5 py-0.5 text-[11px] font-medium text-red-700 break-words dark:text-red-200;
+  }
+}
+
+@layer base {
+  button,
+  a,
+  input,
+  select,
+  textarea {
+    -webkit-tap-highlight-color: transparent;
+  }
+  :where(button, a, input, select, textarea):focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 3px;
+  }
+  ::selection {
+    background: hsl(var(--primary) / 0.2);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@layer components {
+  .btn-secondary:disabled,
+  .btn-ghost:disabled {
+    @apply cursor-not-allowed opacity-50;
+  }
+  .workspace-topbar {
+    padding-top: env(safe-area-inset-top);
+  }
+  .workspace-content {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .workspace-sidebar {
+    background: #111c2c;
+  }
+  .sidebar-link {
+    @apply flex items-center gap-3 rounded-lg px-3 py-2.5 text-[13px] font-medium text-slate-400 transition-colors hover:bg-white/5 hover:text-slate-100;
+  }
+  .sidebar-link-active {
+    @apply bg-emerald-400/10 text-emerald-300 hover:bg-emerald-400/10 hover:text-emerald-300;
+    box-shadow: inset 2px 0 0 #6ee7b7;
+  }
+  .nav-chevron {
+    @apply opacity-0;
+  }
+  .sidebar-link-active .nav-chevron {
+    @apply opacity-100;
+  }
+  .workspace-sidebar ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .workspace-sidebar ::-webkit-scrollbar-thumb {
+    background: #29384b;
+  }
+  .skip-link {
+    @apply fixed left-4 top-4 z-[100] -translate-y-24 rounded-lg bg-primary-600 px-4 py-3 text-sm text-white focus:translate-y-0;
+  }
+  .action-card {
+    @apply rounded-xl border border-surface-600 bg-surface-800 p-5 transition hover:border-primary-500/40 hover:shadow-md;
+  }
+  .overview-hero {
+    background-color: #132c30;
+    background-image:
+      radial-gradient(ellipse at 95% 0%, #23554b 0%, transparent 65%),
+      linear-gradient(110deg, #152a36, #132c30);
+  }
+  .overview-hero::after {
+    content: "";
+    position: absolute;
+    inset: 0 0 0 40%;
+    opacity: 0.13;
+    background-image:
+      linear-gradient(#a7f3d0 1px, transparent 1px),
+      linear-gradient(90deg, #a7f3d0 1px, transparent 1px);
+    background-size: 44px 44px;
+    mask-image: linear-gradient(90deg, transparent, black);
+    pointer-events: none;
+  }
+  .workspace-page-header {
+    @apply bg-transparent px-4 pb-5 pt-7 md:px-8;
+  }
+  .workspace-page-header .h-10 {
+    flex-shrink: 0;
+  }
+  .workspace-page-header h1 {
+    @apply text-2xl font-semibold tracking-tight;
+  }
+  .workspace-page-header h1 + p {
+    @apply mt-1.5 text-sm leading-5;
+  }
+  .workspace-page-body {
+    @apply px-4 pb-8 md:px-8;
+  }
+  .workspace-page-body > .max-w-6xl {
+    @apply max-w-[1440px];
+  }
+  .login-story {
+    background: #111f2e;
+    background-image: radial-gradient(
+      ellipse at 0% 100%,
+      #204d43,
+      transparent 70%
+    );
+  }
+  .login-flow-line {
+    @apply mx-auto h-7 w-px bg-emerald-300/20;
   }
 }

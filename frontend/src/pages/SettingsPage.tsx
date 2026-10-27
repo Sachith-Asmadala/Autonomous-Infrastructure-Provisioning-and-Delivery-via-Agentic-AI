@@ -150,7 +150,7 @@ export default function SettingsPage() {
 
   return (
     <div className="flex h-full flex-col bg-surface-900">
-      <div className="shrink-0 border-b border-surface-600 bg-surface-900/90 px-4 py-4 backdrop-blur md:px-6">
+      <div className="workspace-page-header shrink-0">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-primary-500/30 bg-primary-500/10">
             <Monitor
@@ -167,7 +167,7 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-4 py-5 md:px-6">
+      <div className="workspace-page-body min-h-0 flex-1 overflow-y-auto py-5">
         <div className="mx-auto max-w-5xl space-y-5">
           {loading ? (
             <div className="flex h-28 items-center justify-center">
@@ -265,7 +265,7 @@ export default function SettingsPage() {
                 label="Active Backend"
                 value={getApiBaseUrl()}
                 ok={Boolean(status?.backend_api.status === "ok")}
-                note="The API client uses the saved URL first, then VITE_API_BASE_URL, then http://127.0.0.1:8000."
+                note="The API client uses the saved URL first, then VITE_API_BASE_URL. Web mode defaults to this site's origin; desktop and mobile default to http://127.0.0.1:8000."
               />
               <SettingRow
                 icon={KeyRound}

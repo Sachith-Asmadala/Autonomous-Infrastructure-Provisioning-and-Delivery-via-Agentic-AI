@@ -5,17 +5,21 @@
 import type { AxiosError } from "axios";
 
 interface ErrorResponse {
-  detail?: string;
+  detail?: unknown;
   message?: string;
 }
 
 export function getUserFriendlyError(err: unknown): string {
+  if (typeof err === "string") return err;
   // Handle network errors (backend not reachable)
   if (err instanceof Error) {
     const message = err.message.toLowerCase();
 
     // Network connectivity issues
-    if (message.includes("econnrefused") || message.includes("connection refused")) {
+    if (
+      message.includes("econnrefused") ||
+      message.includes("connection refused")
+    ) {
       return "Backend server is not reachable. Please ensure the backend is running on port 8000.";
     }
     if (message.includes("enotfound") || message.includes("getaddrinfo")) {
@@ -32,7 +36,8 @@ export function getUserFriendlyError(err: unknown): string {
   // Handle Axios/HTTP errors
   const axiosErr = err as AxiosError<ErrorResponse>;
   const status = axiosErr.response?.status;
-  const detail = axiosErr.response?.data?.detail;
+  const rawDetail = axiosErr.response?.data?.detail;
+  const detail = typeof rawDetail === "string" ? rawDetail : undefined;
 
   if (!status) {
     // No response (network error)
@@ -45,7 +50,9 @@ export function getUserFriendlyError(err: unknown): string {
   // Handle status-specific errors
   switch (status) {
     case 400:
-      return detail || "Invalid request. Please check your input and try again.";
+      return (
+        detail || "Invalid request. Please check your input and try again."
+      );
 
     case 401:
       return "Your session has expired. Please log in again.";
@@ -90,7 +97,10 @@ export function getUserFriendlyError(err: unknown): string {
       if (detail?.includes("model") || detail?.includes("Model")) {
         return "ML model service is unavailable. Please train the model first.";
       }
-      return "A required service is unavailable. Please check the backend logs.";
+      return (
+        detail ||
+        "A required service is unavailable. Please check the backend logs."
+      );
 
     default:
       return detail || `Error (${status}). Please check the backend logs.`;
@@ -125,7 +135,10 @@ export function getDebugHint(err: unknown): string | null {
 /**
  * Format error for display in UI
  */
-export function formatErrorDisplay(err: unknown, title = "Error"): { title: string; message: string; hint?: string } {
+export function formatErrorDisplay(
+  err: unknown,
+  title = "Error",
+): { title: string; message: string; hint?: string } {
   const message = getUserFriendlyError(err);
   const hint = getDebugHint(err);
 

@@ -63,11 +63,11 @@ def client():
         yield test_client
 
 
-def _auth_headers(role: str = "developer") -> dict[str, str]:
+def _auth_headers(role: str = "developer", username: str = "workflow-failure-test-user") -> dict[str, str]:
     token = create_access_token(
         {
             "sub": str(uuid.uuid4()),
-            "username": "workflow-failure-test-user",
+            "username": username,
             "role": role,
         }
     )
@@ -78,6 +78,7 @@ async def _create_failure(db_session: AsyncSession):
     return await create_workflow_failure(
         db_session,
         repo_full_name="octo-org/demo-app",
+        requested_by="workflow-failure-test-user",
         workflow_run_id=123456789,
         workflow_name="CI",
         branch="feature/demo",
@@ -144,12 +145,15 @@ async def test_get_workflow_failure_endpoint(client: TestClient, db_session: Asy
 
 
 @pytest.mark.asyncio
-async def test_create_fix_pr_endpoint_requires_write_permission(client: TestClient, db_session: AsyncSession):
+async def test_create_fix_pr_endpoint_hides_another_developers_failure(client: TestClient, db_session: AsyncSession):
     record = await _create_failure(db_session)
 
-    response = client.post(f"/api/v1/workflow-failures/{record.id}/create-fix-pr", headers=_auth_headers("developer"))
+    response = client.post(
+        f"/api/v1/workflow-failures/{record.id}/create-fix-pr",
+        headers=_auth_headers("developer", "other-developer"),
+    )
 
-    assert response.status_code == 403
+    assert response.status_code == 404
 
 
 @pytest.mark.asyncio
@@ -158,7 +162,7 @@ async def test_create_fix_pr_endpoint_returns_service_result(monkeypatch, client
 
     async def _fake_create_fix_pr_for_failure(db, failure_id, current_user):
         assert failure_id == record.id
-        assert current_user["role"] == "operator"
+        assert current_user["role"] == "admin"
         return {
             "workflow_failure_id": record.id,
             "repo_full_name": "octo-org/demo-app",
@@ -172,7 +176,7 @@ async def test_create_fix_pr_endpoint_returns_service_result(monkeypatch, client
 
     monkeypatch.setattr(workflow_failures, "create_fix_pr_for_failure", _fake_create_fix_pr_for_failure)
 
-    response = client.post(f"/api/v1/workflow-failures/{record.id}/create-fix-pr", headers=_auth_headers("operator"))
+    response = client.post(f"/api/v1/workflow-failures/{record.id}/create-fix-pr", headers=_auth_headers("admin"))
 
     assert response.status_code == 200
     body = response.json()
@@ -205,7 +209,7 @@ async def test_create_fix_pr_endpoint_creates_approval_for_medium_risk(
         status="diagnosed",
     )
 
-    response = client.post(f"/api/v1/workflow-failures/{record.id}/create-fix-pr", headers=_auth_headers("operator"))
+    response = client.post(f"/api/v1/workflow-failures/{record.id}/create-fix-pr", headers=_auth_headers("admin"))
 
     assert response.status_code == 200
     body = response.json()
@@ -233,3 +237,153 @@ def test_get_workflow_failure_endpoint_returns_404(client: TestClient):
     response = client.get(f"/api/v1/workflow-failures/{uuid.uuid4()}", headers=_auth_headers())
 
     assert response.status_code == 404
+
+
+def _run(run_id=1234):
+    return {"id": run_id, "name": "CI", "head_branch": "main", "conclusion": "failure"}
+
+
+@pytest.mark.asyncio
+async def test_sync_imports_real_metadata_without_logs_and_deduplicates(monkeypatch, client, db_session):
+    from app.core.config import settings
+    from app.tools import github_tool
+    monkeypatch.setattr(settings, "GITHUB_TOKEN", "")
+    monkeypatch.setattr(github_tool, "list_failed_workflow_runs", lambda *args, **kwargs: [_run()])
+    first = client.post("/api/v1/workflow-failures/sync", headers=_auth_headers(),
+                        json={"repo_full_name": "octo-org/demo-app"})
+    assert first.status_code == 200
+    item = first.json()["failures"][0]
+    assert first.json()["imported"] == 1 and item["workflow_run_id"] == 1234
+    assert item["requested_by"] == "workflow-failure-test-user"
+    assert item["status"] == "logs_unavailable" and "Paste" in item["diagnosis_error"]
+    second = client.post("/api/v1/workflow-failures/sync", headers=_auth_headers(),
+                         json={"repo_full_name": "octo-org/demo-app"})
+    assert second.json()["imported"] == 0 and second.json()["failures"][0]["id"] == item["id"]
+    assert len(client.get("/api/v1/workflow-failures", headers=_auth_headers()).json()) == 1
+
+
+@pytest.mark.asyncio
+async def test_imported_logs_are_diagnosed_redacted_and_owned(monkeypatch, client, db_session):
+    from app.services import failure_prediction_service
+    captured = []
+
+    def predict(log):
+        captured.append(log)
+        return {"label": "npm_missing_test_script", "confidence": 0.93, "suggested_fix": "Add a test script."}
+    monkeypatch.setattr(failure_prediction_service, "predict_failure", predict)
+    payload = {"repo_full_name": "octo-org/demo-app", "workflow_run_id": 100,
+               "log_text": "npm ERR! Missing script: test\ntoken ghp_" + "a" * 30}
+    response = client.post("/api/v1/workflow-failures/import", json=payload, headers=_auth_headers())
+    assert response.status_code == 200
+    item = response.json()
+    assert item["status"] == "diagnosed" and item["predicted_label"] == "npm_missing_test_script"
+    assert "a" * 30 not in item["log_excerpt"] and "a" * 30 not in captured[0]
+    assert client.get(f"/api/v1/workflow-failures/{item['id']}",
+                      headers=_auth_headers(username="another-developer")).status_code == 404
+    assert client.get("/api/v1/workflow-failures", headers=_auth_headers(username="another-developer")).json() == []
+    assert len(client.get("/api/v1/workflow-failures", headers=_auth_headers("admin")).json()) == 1
+    second = client.post("/api/v1/workflow-failures/import", json=payload, headers=_auth_headers())
+    assert second.json()["id"] == item["id"]
+
+
+@pytest.mark.asyncio
+async def test_developer_requests_own_fix_through_approval_only(monkeypatch, client, db_session):
+    from app.services import fix_pr_service
+    record = await _create_failure(db_session)
+
+    def no_github(*args, **kwargs):
+        raise AssertionError("Requesting an approval must not execute GitHub calls")
+    monkeypatch.setattr(fix_pr_service.github_tool, "create_branch", no_github)
+    first = client.post(f"/api/v1/workflow-failures/{record.id}/create-fix-pr", headers=_auth_headers())
+    assert first.status_code == 200 and first.json()["status"] == "approval_required"
+    second = client.post(f"/api/v1/workflow-failures/{record.id}/create-fix-pr", headers=_auth_headers())
+    assert second.json()["approval_id"] == first.json()["approval_id"]
+    approval = await db_session.get(ApprovalRequest, first.json()["approval_id"])
+    assert approval.requested_by == "workflow-failure-test-user" and approval.expires_at is not None
+
+
+@pytest.mark.asyncio
+async def test_webhook_and_legacy_failures_are_admin_only(client, db_session):
+    await create_workflow_failure(db_session, repo_full_name="octo-org/demo-app", workflow_run_id=42,
+                                  requested_by="github_webhook")
+    await create_workflow_failure(db_session, repo_full_name="octo-org/demo-app", workflow_run_id=43)
+    assert client.get("/api/v1/workflow-failures", headers=_auth_headers()).json() == []
+    assert len(client.get("/api/v1/workflow-failures", headers=_auth_headers("admin")).json()) == 2
+
+
+@pytest.mark.parametrize("path,payload", [
+    ("sync", {"repo_full_name": "https://bad.example/repo"}),
+    ("sync", {"repo_full_name": "owner/repo?x=1"}),
+    ("sync", {"repo_full_name": "owner/repo", "limit": -1}),
+    ("import", {"repo_full_name": "owner/repo", "workflow_run_id": 0, "log_text": "error"}),
+])
+def test_invalid_imports_are_rejected(client, path, payload):
+    assert client.post(f"/api/v1/workflow-failures/{path}", json=payload, headers=_auth_headers()).status_code == 422
+
+
+def test_sync_reports_github_error_and_import_reports_missing_model(monkeypatch, client):
+    from app.tools import github_tool
+    from app.services import failure_prediction_service
+
+    def unavailable(*args, **kwargs):
+        raise github_tool.GitHubToolError("Repository not found or private.")
+    monkeypatch.setattr(github_tool, "list_failed_workflow_runs", unavailable)
+    assert client.post("/api/v1/workflow-failures/sync", headers=_auth_headers(),
+                       json={"repo_full_name": "owner/repo"}).status_code == 400
+
+    def missing_model(*args, **kwargs):
+        raise failure_prediction_service.FailurePredictionUnavailable("Model unavailable.")
+    monkeypatch.setattr(failure_prediction_service, "predict_failure", missing_model)
+    response = client.post("/api/v1/workflow-failures/import", headers=_auth_headers(),
+                           json={"repo_full_name": "owner/repo", "workflow_run_id": 1, "log_text": "error"})
+    assert response.status_code == 503
+
+
+@pytest.mark.asyncio
+async def test_sync_uses_installation_access_case_insensitively(monkeypatch, client, db_session):
+    from app.core.config import settings
+    from app.models.models import RepositoryInstallation
+    from app.services import workflow_failure_import_service as importer
+    from app.services import failure_prediction_service
+    from app.tools import github_tool
+    monkeypatch.setattr(settings, "GITHUB_TOKEN", "")
+    db_session.add(RepositoryInstallation(
+        installation_id=77, repo_full_name="Owner/Project", owner="Owner", repo="Project", status="active",
+    ))
+    await db_session.flush()
+    monkeypatch.setattr(importer, "get_installation_access_token", lambda identifier: "synthetic-installation-token")
+
+    def list_runs(repo, limit, *, token):
+        assert token == "synthetic-installation-token"
+        return [_run()]
+
+    def download(repo, run_id, *, token):
+        assert token == "synthetic-installation-token"
+        return "npm ERR! Missing script: test"
+    monkeypatch.setattr(github_tool, "list_failed_workflow_runs", list_runs)
+    monkeypatch.setattr(github_tool, "download_workflow_logs", download)
+    monkeypatch.setattr(failure_prediction_service, "predict_failure", lambda log: {
+        "label": "npm_missing_test_script", "confidence": 0.92, "suggested_fix": "Add a test script.",
+    })
+    response = client.post("/api/v1/workflow-failures/sync", headers=_auth_headers(),
+                           json={"repo_full_name": "owner/project"})
+    assert response.status_code == 200 and response.json()["diagnosed"] == 1
+    assert response.json()["failures"][0]["diagnosis_error"] is None
+
+
+@pytest.mark.asyncio
+async def test_expired_fix_approval_can_be_requested_again(client, db_session):
+    from datetime import datetime, timedelta, timezone
+    record = await _create_failure(db_session)
+    path = f"/api/v1/workflow-failures/{record.id}"
+    first = client.post(f"{path}/create-fix-pr", headers=_auth_headers())
+    assert first.status_code == 200
+    assert client.get(path, headers=_auth_headers()).json()["has_pending_approval"] is True
+    approval = await db_session.get(ApprovalRequest, first.json()["approval_id"])
+    approval.expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+    await db_session.flush()
+    assert client.get(path, headers=_auth_headers()).json()["has_pending_approval"] is False
+    second = client.post(f"{path}/create-fix-pr", headers=_auth_headers())
+    assert second.status_code == 200
+    assert second.json()["approval_id"] != first.json()["approval_id"]
+    assert client.get(path, headers=_auth_headers()).json()["has_pending_approval"] is True

@@ -61,7 +61,7 @@ async def github_webhook(
             await _handle_installation_repositories_event(payload, db, request_id=request_id)
         elif event == "workflow_run" and payload.get("action") == "completed":
             conclusion = payload.get("workflow_run", {}).get("conclusion")
-            if conclusion == "failure":
+            if conclusion in {"failure", "timed_out"}:
                 await _handle_failed_workflow_run(payload, db, request_id=request_id)
             else:
                 logger.info("webhook.github.workflow_run.ignored", reason="non_failure_conclusion", **context)

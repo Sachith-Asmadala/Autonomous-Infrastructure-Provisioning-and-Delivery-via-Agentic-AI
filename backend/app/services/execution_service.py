@@ -11,6 +11,20 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.models import Execution
+from app.schemas.schemas import ExecutionOut
+
+
+def execution_response(record: Execution) -> ExecutionOut:
+    """Include the reviewer separately from the action's original requester.
+
+    The caller must eager-load the approval relationship to avoid implicit
+    asynchronous database access during response serialization.
+    """
+    response = ExecutionOut.model_validate(record)
+    if record.approval:
+        response.approval_decided_by = record.approval.decided_by
+        response.approval_status = record.approval.status
+    return response
 
 
 async def create_execution(

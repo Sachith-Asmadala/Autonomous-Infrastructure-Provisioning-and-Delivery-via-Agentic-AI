@@ -1,17 +1,14 @@
 """Repository inspection endpoints."""
 from __future__ import annotations
 
-import json
-import uuid
-from datetime import datetime, timedelta, timezone
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import require_permission
-from app.models.models import ApprovalRequest, Execution
 from app.schemas.schemas import (
     RepositoryInstallationOut,
     RepositoryScanRequest,
@@ -28,7 +25,9 @@ from app.services.github_app_service import (
 )
 from app.services.cicd_readiness_service import assess_cicd_readiness
 from app.services.repo_analyzer import detect_stack
-from app.tools.github_tool import GitHubToolError, create_workflow_pr, get_repository_analysis_inputs
+from app.tools.github_tool import GitHubToolError, get_repository_analysis_inputs
+
+from app.services.workflow_pr_request_service import latest_workflow_pr, request_workflow_pr
 
 router = APIRouter()
 
@@ -98,141 +97,42 @@ async def scan_repository(
     }
 
 
-@router.post(
-    "/create-workflow-pr",
-    response_model=RepositoryWorkflowPRResponse,
-    response_model_exclude_none=True,
-)
+@router.get("/integration-status")
+async def repository_integration_status(current_user: dict = Depends(require_permission("repositories:read"))):
+    return {"credentials_configured": bool(settings.GITHUB_TOKEN or (
+        settings.GITHUB_APP_ID and settings.GITHUB_APP_PRIVATE_KEY
+    ))}
+
+
+@router.get("/workflow-pr-status", response_model=RepositoryWorkflowPRResponse | None)
+async def workflow_pr_status(
+    repo_full_name: str = Query(min_length=3, max_length=255),
+    overwrite_existing_workflow: bool = False,
+    approval_id: UUID | None = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(require_permission("repositories:write")),
+):
+    """Return own latest review, or a specific review visible to this member."""
+    try:
+        result = await latest_workflow_pr(
+            db, repo_full_name, overwrite_existing_workflow, current_user,
+            str(approval_id) if approval_id else None,
+        )
+        if approval_id and result is None:
+            raise HTTPException(status_code=404, detail="Workflow PR review not found.")
+        return result
+    except GitHubToolError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/create-workflow-pr", response_model=RepositoryWorkflowPRResponse, response_model_exclude_none=True)
 async def create_repository_workflow_pr(
     request: RepositoryWorkflowPRRequest,
     db: AsyncSession = Depends(get_db),
     current_user: dict = Depends(require_permission("repositories:write")),
 ):
-    """Create an AI-generated GitHub Actions workflow pull request."""
-    actor = current_user.get("username", current_user.get("sub", "unknown"))
-    now = datetime.now(tz=timezone.utc)
-    execution = Execution(
-        id=str(uuid.uuid4()),
-        requested_by=actor,
-        tool_name="github_create_workflow_pr",
-        tool_input=json.dumps(
-            {
-                "repo_full_name": request.repo_full_name,
-                "overwrite_existing_workflow": request.overwrite_existing_workflow,
-            },
-            ensure_ascii=False,
-        ),
-        status="running",
-        summary=f"Create AI-generated workflow PR for {request.repo_full_name}",
-        source="api",
-        started_at=now,
-    )
-    db.add(execution)
-    await db.flush()
-
-    if settings.ENABLE_HITL:
-        approval = ApprovalRequest(
-            id=str(uuid.uuid4()),
-            session_id=str(uuid.uuid4()),
-            requested_by=actor,
-            tool_name="github_create_workflow_pr",
-            tool_input=execution.tool_input,
-            action="Create GitHub Actions workflow pull request",
-            risk_level="medium",
-            summary=f"Approve workflow PR creation for {request.repo_full_name}.",
-            status="pending",
-            expires_at=now + timedelta(seconds=settings.HITL_APPROVAL_TIMEOUT_SECONDS),
-        )
-        db.add(approval)
-        await db.flush()
-        await db.refresh(approval)
-
-        execution.status = "pending"
-        execution.approval_id = approval.id
-        execution.summary = f"Approval required before creating workflow PR for {request.repo_full_name}"
-        execution.details = json.dumps(
-            {
-                "approval_required": True,
-                "approval_id": approval.id,
-                "repo_full_name": request.repo_full_name,
-                "overwrite_existing_workflow": request.overwrite_existing_workflow,
-            },
-            ensure_ascii=False,
-        )
-        await audit_service.log_execution(
-            db,
-            tool_name="github_workflow_pr",
-            action_summary=f"Approval required before creating workflow PR for {request.repo_full_name}",
-            status="pending",
-            actor=actor,
-            tool_input={
-                "repo": request.repo_full_name,
-                "overwrite_existing_workflow": request.overwrite_existing_workflow,
-            },
-            tool_output={"approval_id": approval.id},
-            session_id=approval.session_id,
-            source="api",
-        )
-        return {
-            "repo_full_name": request.repo_full_name,
-            "status": "approval_required",
-            "approval_required": True,
-            "approval_id": approval.id,
-            "message": "Human approval is required before creating the workflow pull request.",
-        }
-
+    """Save or reuse human approval for a workflow PR. All writes wait for review."""
     try:
-        token = await _installation_token_for_repo(db, request.repo_full_name)
-        result = (
-            create_workflow_pr(
-                request.repo_full_name,
-                overwrite_existing_workflow=request.overwrite_existing_workflow,
-                token=token,
-            )
-            if token
-            else create_workflow_pr(
-                request.repo_full_name,
-                overwrite_existing_workflow=request.overwrite_existing_workflow,
-            )
-        )
-    except (GitHubToolError, GitHubAppError) as exc:
-        execution.status = "failed"
-        execution.summary = f"Failed to create AI-generated workflow PR for {request.repo_full_name}"
-        execution.details = json.dumps({"error": str(exc)}, ensure_ascii=False)
-        execution.completed_at = datetime.now(tz=timezone.utc)
-        await audit_service.log_workflow_pr_creation(
-            db,
-            repo_full_name=request.repo_full_name,
-            branch="",
-            pull_request_url=None,
-            status="failed",
-            error=str(exc),
-            actor=actor,
-            source="api",
-        )
-        await db.commit()
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-
-    response = {
-        "repo_full_name": result["repo_full_name"],
-        "detected_stack": result["detected_stack"],
-        "branch": result["branch"],
-        "workflow_path": result["workflow_path"],
-        "pull_request_url": result["pull_request_url"],
-    }
-    execution.status = "completed"
-    execution.summary = (
-        f"Created AI-generated workflow PR for {result['repo_full_name']}: "
-        f"{result['pull_request_url']}"
-    )
-    execution.details = json.dumps(response, ensure_ascii=False)
-    execution.completed_at = datetime.now(tz=timezone.utc)
-    await audit_service.log_workflow_pr_creation(
-        db,
-        repo_full_name=result["repo_full_name"],
-        branch=result["branch"],
-        pull_request_url=result["pull_request_url"],
-        actor=actor,
-        source="api",
-    )
-    return response
+        return await request_workflow_pr(db, request.repo_full_name, request.overwrite_existing_workflow, current_user)
+    except GitHubToolError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc

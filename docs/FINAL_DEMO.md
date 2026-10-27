@@ -21,13 +21,11 @@ The demo should prove:
 
 ## 2. Demo Roles
 
-Use an admin or operator account for the full demo.
+Use an admin account for the full demo.
 
 Explain role behavior:
 
-- viewer: read-only insight,
 - developer: diagnosis and lower-risk development operations,
-- operator: approvals and repository-changing workflows,
 - admin: full platform owner.
 
 ## 3. Suggested Demo Sequence

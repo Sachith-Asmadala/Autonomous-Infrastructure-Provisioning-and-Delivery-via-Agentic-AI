@@ -42,6 +42,7 @@ class User(Base):
         nullable=False, default=UserRole.DEVELOPER,
     )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    token_version: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False,
     )
@@ -97,7 +98,7 @@ class ChatMessage(Base):
 class ApprovalRequest(Base):
     """
     Created by the agent when it classifies an action as HIGH or CRITICAL risk.
-    The agent suspends execution until an operator/admin decides.
+    The agent suspends execution until an admin decides.
     """
     __tablename__ = "approval_requests"
 
@@ -190,6 +191,8 @@ class WorkflowFailure(Base):
     )
     repo_full_name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     workflow_run_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    requested_by: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    diagnosis_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     workflow_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     branch: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     conclusion: Mapped[str] = mapped_column(String(50), nullable=False, default="failure", index=True)

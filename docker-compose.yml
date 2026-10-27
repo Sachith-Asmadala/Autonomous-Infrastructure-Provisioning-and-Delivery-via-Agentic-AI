@@ -8,13 +8,16 @@ x-backend-env: &backend-env
   REDIS_URL: redis://redis:6379/0
   CELERY_BROKER_URL: redis://redis:6379/0
   CELERY_RESULT_BACKEND: redis://redis:6379/0
+  ENABLE_HITL: "true"
+  DISABLE_AUTH: "false"
+  DESKTOP_MODE: "false"
 
 services:
 
   # ── Database ────────────────────────────────────────────────
   db:
     image: postgres:15-alpine
-    container_name: devops_assistant_db
+    container_name: agentic-postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-devops_user}
@@ -22,8 +25,8 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-devops_assistant}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
+    expose:
+      - "5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-devops_user}"]
       interval: 10s
@@ -35,11 +38,11 @@ services:
   # ── Redis ───────────────────────────────────────────────────
   redis:
     image: redis:7-alpine
-    container_name: devops_assistant_redis
+    container_name: agentic-redis
     restart: unless-stopped
     command: redis-server --appendonly yes
-    ports:
-      - "6379:6379"
+    expose:
+      - "6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -55,14 +58,14 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: devops_assistant_backend
+    container_name: agentic-backend
     restart: unless-stopped
     env_file:
       - ./backend/.env
     environment:
       <<: *backend-env
-    ports:
-      - "8000:8000"
+    expose:
+      - "8000"
     volumes:
       - ./backend/app/ml:/app/app/ml:ro
       - /var/run/docker.sock:/var/run/docker.sock  # Docker tool integration
@@ -85,9 +88,17 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: devops_assistant_worker
+    container_name: agentic-worker
     restart: unless-stopped
     command: celery -A app.core.celery_app:celery_app worker --loglevel=info --concurrency=4
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - 'celery -A app.core.celery_app:celery_app inspect ping --destination "celery@$$HOSTNAME" --timeout=10'
+      interval: 30s
+      timeout: 15s
+      start_period: 30s
+      retries: 3
     env_file:
       - ./backend/.env
     environment:
@@ -108,16 +119,22 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: devops_assistant_flower
+    container_name: agentic-flower
     restart: unless-stopped
     command: celery -A app.core.celery_app:celery_app flower --port=5555 --url-prefix=flower
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:5555/flower/healthcheck"]
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
     env_file:
       - ./backend/.env
     environment:
       <<: *backend-env
       FLOWER_BASIC_AUTH: ${FLOWER_USER:-admin}:${FLOWER_PASSWORD:-admin}
-    ports:
-      - "5555:5555"
+    expose:
+      - "5555"
     depends_on:
       - redis
       - celery_worker
@@ -131,11 +148,18 @@ services:
       dockerfile: Dockerfile
       target: production
       args:
-        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-}
-    container_name: devops_assistant_frontend
+        # This web deployment always uses Nginx's same-origin /api proxy.
+        VITE_API_BASE_URL: ""
+    container_name: agentic-frontend
     restart: unless-stopped
     ports:
-      - "5173:80"
+      - "80:80"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1/"]
+      interval: 30s
+      timeout: 10s
+      start_period: 10s
+      retries: 3
     depends_on:
       backend:
         condition: service_healthy

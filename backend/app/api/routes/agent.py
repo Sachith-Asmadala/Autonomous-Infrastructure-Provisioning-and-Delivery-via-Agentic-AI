@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import uuid
-from typing import Any, Awaitable, Callable, Optional, cast
+from typing import Any, Awaitable, Callable, NoReturn, Optional, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect, status
 from pydantic import BaseModel, Field
@@ -24,8 +25,10 @@ from app.core.security import (
     desktop_user_payload,
     has_permission,
     require_permission,
+    validate_account_payload,
 )
 from app.schemas.schemas import ChatRequest, ChatResponse, IntermediateStep
+from app.models.models import Execution
 from app.services import audit_service
 from app.services.execution_service import complete_execution, create_execution
 from app.services.memory_service import DBChatMessageHistory
@@ -54,7 +57,16 @@ def _is_ollama_connection_error(exc: Exception) -> bool:
     return "localhost" in text and "11434" in text and "connection refused" in text
 
 
-def _raise_provider_errors(exc: Exception) -> None:
+def _raise_provider_errors(exc: Exception) -> NoReturn:
+    message = str(exc).lower()
+    if ("api_key" in message or "api key" in message) and any(
+        phrase in message for phrase in ("must be set", "did not find", "not configured")
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=("AI chat is not configured. Ask your admin to connect an AI provider. "
+                    "Log diagnosis and workflow generation are available."),
+        )
     if _is_openai_quota_error(exc):
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -72,7 +84,22 @@ def _raise_provider_errors(exc: Exception) -> None:
                 f"`ollama pull {settings.DEFAULT_MODEL}`."
             ),
         )
-    raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Agent error: {exc}")
+    raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                        detail="Agent request failed. Check the audit log for details.")
+
+
+def _scoped_chat_session(session_id: str, current_user: dict) -> str:
+    """Namespace conversation memory by authenticated account and role.
+
+    The public session ID stays unchanged in responses and approval requests;
+    knowing another member's ID cannot read or clear that member's memory.
+    """
+    identity = current_user.get("sub") or current_user.get("username")
+    if not identity:
+        raise HTTPException(status_code=401, detail="Authenticated identity required.")
+    if not isinstance(session_id, str) or not session_id or len(session_id) > 128:
+        raise HTTPException(status_code=400, detail="Invalid chat session ID.")
+    return hashlib.sha256(json.dumps([identity, current_user.get("role"), session_id]).encode()).hexdigest()
 
 
 def _serialize_intermediate_steps(steps: list) -> list[IntermediateStep]:
@@ -214,6 +241,7 @@ async def chat(
     session_id = request.session_id or str(uuid.uuid4())
     user_role = current_user.get("role", "developer")
     execution = None
+    execution_id = None
 
     try:
         if settings.DEFAULT_LLM_PROVIDER.lower() != "test" or settings.MEMORY_BACKEND != "inmemory":
@@ -224,8 +252,9 @@ async def chat(
                 source="agent",
             )
             await db.commit()
+            execution_id = execution.id
 
-        agent = get_or_create_agent(session_id=session_id, user_role=user_role)
+        agent = get_or_create_agent(session_id=_scoped_chat_session(session_id, current_user), user_role=user_role)
         try:
             result = await agent.chat(request.message, db=db)
         except HITLApprovalRequired as approval_exc:
@@ -276,15 +305,31 @@ async def chat(
 
         return ChatResponse(
             output=result["output"],
-            session_id=result["session_id"],
+            session_id=session_id,
             intermediate_steps=_serialize_intermediate_steps(result.get("intermediate_steps", [])),
             requires_approval=result.get("requires_approval"),
             approval_id=result.get("approval_id"),
         )
-    except HTTPException:
-        raise
     except Exception as exc:
-        _raise_provider_errors(exc)
+        if isinstance(exc, HTTPException):
+            response_error = exc
+        else:
+            try:
+                _raise_provider_errors(exc)
+            except HTTPException as provider_error:
+                response_error = provider_error
+        if execution_id:
+            try:
+                await db.rollback()
+                failed_execution = await db.get(Execution, execution_id)
+                if failed_execution:
+                    await complete_execution(db, execution=failed_execution,
+                                             output=str(response_error.detail), success=False)
+                    await db.commit()
+            except Exception as audit_error:
+                await db.rollback()
+                logger.warning("audit.agent_failure.skipped", error_type=audit_error.__class__.__name__)
+        raise response_error from exc
 
 
 @router.delete("/session/{session_id}", status_code=204)
@@ -294,8 +339,9 @@ async def clear_session(
     current_user: dict = Depends(require_permission("agent:chat")),
 ):
     """Clear the in-process agent instance and persisted history for a session."""
-    _agent_pool.pop(session_id, None)
-    history = DBChatMessageHistory(session_id=session_id, db=db)
+    scoped_id = _scoped_chat_session(session_id, current_user)
+    _agent_pool.pop(scoped_id, None)
+    history = DBChatMessageHistory(session_id=scoped_id, db=db)
     await history.aclear()
     await db.commit()
     return None
@@ -325,7 +371,10 @@ async def agent_ws(
             if payload.get("type") != "access":
                 await websocket.close(code=4003, reason="Invalid token type")
                 return
-            user_role = payload.get("role", "developer")
+            if "user_version" in payload:
+                async with AsyncSessionLocal() as db:
+                    payload = await validate_account_payload(payload, db)
+            user_role = payload.get("role")
             if not has_permission(user_role, "agent:chat"):
                 await websocket.close(code=4003, reason="Agent chat permission required")
                 return
@@ -361,15 +410,26 @@ async def agent_ws(
                 await websocket.send_json({"event": "error", "detail": "Empty message"})
                 continue
 
-            agent = get_or_create_agent(session_id=ws_session_id, user_role=user_role)
             try:
                 async with AsyncSessionLocal() as db:
+                    if not auth_bypass_enabled():
+                        try:
+                            payload = await validate_account_payload(payload, db)
+                        except HTTPException:
+                            await websocket.close(code=4003, reason="Account inactive or session revoked")
+                            return
+                        user_role = payload["role"]
+                    agent = get_or_create_agent(session_id=_scoped_chat_session(ws_session_id, payload),
+                                                user_role=user_role)
                     async for token_chunk in agent.stream_chat(message, db=db):
                         await websocket.send_text(token_chunk)
                     await db.commit()
                 await websocket.send_json({"event": "done", "session_id": ws_session_id})
             except Exception as exc:
-                await websocket.send_json({"event": "error", "detail": str(exc)})
+                try:
+                    _raise_provider_errors(exc)
+                except HTTPException as provider_error:
+                    await websocket.send_json({"event": "error", "detail": provider_error.detail})
     except WebSocketDisconnect:
         pass
     finally:

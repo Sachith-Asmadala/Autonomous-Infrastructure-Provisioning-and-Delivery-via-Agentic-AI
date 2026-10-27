@@ -50,7 +50,7 @@ Subscribe to these events:
 3. Scan the repository from the Repository CI/CD Setup page.
 4. Create a workflow PR from the frontend.
 5. Confirm the response says approval is required.
-6. Approve the request from the Approvals page using an operator/admin account.
+6. Approve the request from the Approvals page using an admin account.
 7. Confirm GitHub receives a new `ai-cicd/setup-pipeline...` branch and a pull request.
 8. Trigger a failing workflow run in the test repository.
 9. Confirm the webhook stores a workflow failure and diagnosis.

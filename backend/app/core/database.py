@@ -5,7 +5,7 @@ import ssl
 from typing import Any, AsyncGenerator
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from sqlalchemy import or_, select, text
+from sqlalchemy import String, cast, or_, select, text, update
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
@@ -84,6 +84,7 @@ async def init_db() -> None:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
             await ensure_schema_compatibility(conn)
+            await migrate_retired_roles(conn)
         await ensure_default_admin()
     except Exception as exc:
         logger.warning("database.init.skipped", error=str(exc))
@@ -97,21 +98,52 @@ async def ensure_schema_compatibility(conn) -> None:
     """
     dialect = conn.dialect.name
     if dialect == "postgresql":
+        await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version INTEGER NOT NULL DEFAULT 0"))
         await conn.execute(
             text(
                 "ALTER TABLE workflow_failures "
                 "ADD COLUMN IF NOT EXISTS recommendation_json TEXT"
             )
         )
+        await conn.execute(text("ALTER TABLE workflow_failures ADD COLUMN IF NOT EXISTS requested_by VARCHAR(100)"))
+        await conn.execute(text("ALTER TABLE workflow_failures ADD COLUMN IF NOT EXISTS diagnosis_error TEXT"))
         return
 
     if dialect == "sqlite":
+        user_columns = await conn.execute(text("PRAGMA table_info(users)"))
+        if "token_version" not in {row[1] for row in user_columns.fetchall()}:
+            await conn.execute(text("ALTER TABLE users ADD COLUMN token_version INTEGER NOT NULL DEFAULT 0"))
         result = await conn.execute(text("PRAGMA table_info(workflow_failures)"))
         columns = {row[1] for row in result.fetchall()}
         if "recommendation_json" not in columns:
             await conn.execute(
                 text("ALTER TABLE workflow_failures ADD COLUMN recommendation_json TEXT")
             )
+        if "requested_by" not in columns:
+            await conn.execute(text("ALTER TABLE workflow_failures ADD COLUMN requested_by VARCHAR(100)"))
+        if "diagnosis_error" not in columns:
+            await conn.execute(text("ALTER TABLE workflow_failures ADD COLUMN diagnosis_error TEXT"))
+
+
+async def migrate_retired_roles(conn) -> None:
+    """Preserve legacy accounts while moving them to Developer access.
+
+    Cast the stored role before reading it: the current ORM enum intentionally
+    cannot deserialize retired values. Revoke both access and refresh sessions
+    in the same startup transaction. Repeated startups are a no-op.
+    """
+    from app.models.models import User, UserSession
+
+    legacy_users = select(User.id).where(cast(User.role, String).in_(["operator", "viewer"]))
+    await conn.execute(
+        update(UserSession).where(UserSession.user_id.in_(legacy_users)).values(is_revoked=True)
+    )
+    result = await conn.execute(
+        update(User).where(cast(User.role, String).in_(["operator", "viewer"]))
+        .values(role="developer", token_version=User.token_version + 1)
+    )
+    if result.rowcount:
+        logger.info("database.roles.migrated", affected_accounts=result.rowcount, target_role="developer")
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
@@ -139,24 +171,10 @@ def _demo_users() -> list[dict[str, Any]]:
             "role": UserRole.ADMIN,
         },
         {
-            "email": "operator@devops.example.com",
-            "legacy_email": "operator@devops.local",
-            "username": "operator",
-            "password": "operator123",
-            "role": UserRole.OPERATOR,
-        },
-        {
             "email": "devops.engineer@example.com",
             "username": "devops.engineer",
             "password": "developer123",
             "role": UserRole.DEVELOPER,
-        },
-        {
-            "email": "viewer@company.example.com",
-            "legacy_email": "viewer@company.local",
-            "username": "viewer",
-            "password": "viewer123",
-            "role": UserRole.VIEWER,
         },
     ]
 
@@ -175,6 +193,7 @@ def _demo_users() -> list[dict[str, Any]]:
 async def ensure_default_users(db: AsyncSession) -> tuple[list[str], list[str]]:
     """Seed default RBAC accounts into the provided session when missing."""
     from app.models.models import User
+    from app.core.security import UserRole
 
     created = []
     updated = []
@@ -196,6 +215,13 @@ async def ensure_default_users(db: AsyncSession) -> tuple[list[str], list[str]]:
                 user.email = demo["email"]
                 updated.append(demo["username"])
             continue
+
+        if demo["role"] == UserRole.ADMIN:
+            # Bootstrap the initial administrator only. A changed configured
+            # username/email must not create another admin on the next startup.
+            existing_admin = await db.scalar(select(User.id).where(User.role == UserRole.ADMIN).limit(1))
+            if existing_admin:
+                continue
 
         db.add(
             User(
