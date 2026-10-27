@@ -379,3 +379,8 @@ Future expansion areas:
 - Production-grade background scheduling.
 - More failure categories and larger ML dataset.
 - Broader automated fix generation.
+
+
+## Code learning guide
+
+[Read the code walkthrough and interview questions](docs/INTERVIEW_GUIDE.md).
