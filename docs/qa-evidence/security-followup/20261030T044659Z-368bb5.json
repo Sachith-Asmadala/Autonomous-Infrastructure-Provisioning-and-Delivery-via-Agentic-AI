@@ -1,0 +1,83 @@
+{
+  "run_id": "20261030T044659Z-368bb5",
+  "commit_sha": "c0c126f13d61f75e6564b91da5f73eabfd68a703",
+  "source_sha256": "4b4c861911975b2a26c33ee529d164d7e15520d9aa5cab2a40901646b9badeec",
+  "execution_date": "2026-10-30T04:47:00.296702+00:00",
+  "test_counts": {
+    "Passed": 12
+  },
+  "stages": {
+    "frontend-build": {
+      "status": "Passed",
+      "exit_code": 0,
+      "evidence": "frontend-build.log",
+      "duration_seconds": 14.09
+    },
+    "isolated-services": {
+      "status": "Passed",
+      "evidence": "server.log"
+    },
+    "security": {
+      "status": "Passed",
+      "exit_code": 0,
+      "evidence": "security.log",
+      "duration_seconds": 16.98
+    },
+    "zap": {
+      "status": "Warning",
+      "exit_code": 2,
+      "image": "ghcr.io/zaproxy/zaproxy:stable",
+      "target": "http://host.docker.internal:62527",
+      "findings": 5,
+      "evidence": [
+        "zap.html",
+        "zap.json",
+        "security-findings.json"
+      ]
+    }
+  },
+  "files": {
+    "header-observations.json": {
+      "original_sha256": "76c61dcb542c82498c4689798ffd0dbf1ffc1dadccb006476a799e1af85b9787",
+      "published_sha256": "76c61dcb542c82498c4689798ffd0dbf1ffc1dadccb006476a799e1af85b9787"
+    },
+    "manifest.json": {
+      "original_sha256": "da3e9002f4fe630fe12c48588037466cea2c51e6ecaa42fd421d603d018bc6a9",
+      "published_sha256": "da3e9002f4fe630fe12c48588037466cea2c51e6ecaa42fd421d603d018bc6a9"
+    },
+    "security-findings.json": {
+      "original_sha256": "82c60d486ace653835d0806c5772f4de3842659ce5a1671747bd04a87ef7f25e",
+      "published_sha256": "82c60d486ace653835d0806c5772f4de3842659ce5a1671747bd04a87ef7f25e"
+    },
+    "security.xml": {
+      "original_sha256": "bc7d2cf653fad84d45de4a591a69bb0c776bfbefded4b95682de6ca02c5c8038",
+      "published_sha256": "bc7d2cf653fad84d45de4a591a69bb0c776bfbefded4b95682de6ca02c5c8038"
+    },
+    "summary.json": {
+      "original_sha256": "c12b52e27febcb822dbeda6059d9e35f41ebaed4cebfcb3eca6646e6f1775640",
+      "published_sha256": "c12b52e27febcb822dbeda6059d9e35f41ebaed4cebfcb3eca6646e6f1775640"
+    },
+    "summary.md": {
+      "original_sha256": "9325550da31e55a4530abcf5131117c769489640c6c7c441382fca0cacf3da73",
+      "published_sha256": "9325550da31e55a4530abcf5131117c769489640c6c7c441382fca0cacf3da73"
+    },
+    "traceability.md": {
+      "original_sha256": "68c552f301448307a98e594c2e33f45f49ad204d692638d2a8d2860ca0a72152",
+      "published_sha256": "68c552f301448307a98e594c2e33f45f49ad204d692638d2a8d2860ca0a72152"
+    },
+    "zap.html": {
+      "original_sha256": "f0badeca2055450dd97190499baaaaaf140af3f42a39fe8530d25b89cd4631de",
+      "published_sha256": "f0badeca2055450dd97190499baaaaaf140af3f42a39fe8530d25b89cd4631de"
+    },
+    "zap.json": {
+      "original_sha256": "ccc7ecd807689df7477efac1051c7592cb15ef084fc1dc90ea132d160b164d0c",
+      "published_sha256": "ccc7ecd807689df7477efac1051c7592cb15ef084fc1dc90ea132d160b164d0c"
+    }
+  },
+  "redactions": [
+    "Local user paths",
+    "Recognizable JWT and GitHub tokens"
+  ],
+  "scope": "Actual reports; no reconstructed results or fabricated screenshots.",
+  "archive_sha256": "98aee31860eaddfb2641bc7b6ab149aa05bfd917a49d908b93d63aeead9fdfcc"
+}

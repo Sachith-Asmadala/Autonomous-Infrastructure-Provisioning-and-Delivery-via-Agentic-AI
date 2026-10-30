@@ -1,0 +1,4 @@
+# Install after `make setup`; these dependencies are used only by QA.
+selenium==4.27.1
+pytest-html==4.1.1
+pytest-metadata==3.1.1

@@ -67,7 +67,7 @@ async def system_status():
         },
         "ml_model": {
             "available": flags["model_available"],
-            "path": str(model_path),
+            "path": model_path.name,
             "message": "Failure classifier model artifact is available."
             if model_path.exists()
             else "Failure classifier model artifact is missing.",

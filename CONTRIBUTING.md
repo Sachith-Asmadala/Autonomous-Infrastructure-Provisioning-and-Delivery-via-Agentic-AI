@@ -100,3 +100,9 @@ Before presenting or merging changes, verify:
 - frontend build,
 - frontend lint where configured,
 - docs do not contain real secrets.
+
+For isolated Selenium, API/security checks, passive ZAP and dissertation evidence,
+see [docs/QA_TESTING.md](docs/QA_TESTING.md). Install with `make qa-setup` and
+run `make qa`. `make qa-backend` and `make qa-browser` support focused checks.
+Generated evidence is under `qa/reports/`; failed, blocked and unexecuted stages
+must remain visible in any reported results.

@@ -1,5 +1,6 @@
 """Ownership and tool authorization for shared and personal HITL reviews."""
 from fastapi import Depends, HTTPException
+from datetime import datetime, timezone
 
 from app.core.security import get_current_user, has_permission
 from app.models.models import ApprovalRequest
@@ -43,6 +44,11 @@ def can_decide_approval(current_user: dict, record: ApprovalRequest, *, approved
 
 def approval_response(record: ApprovalRequest, current_user: dict) -> ApprovalRequestOut:
     pending = record.status == "pending"
+    if record.expires_at:
+        expiry = record.expires_at
+        if expiry.tzinfo is None:
+            expiry = expiry.replace(tzinfo=timezone.utc)
+        pending = pending and expiry > datetime.now(timezone.utc)
     return ApprovalRequestOut.model_validate(record).model_copy(update={
         "can_approve": pending and can_decide_approval(current_user, record, approved=True),
         "can_reject": pending and can_decide_approval(current_user, record, approved=False),

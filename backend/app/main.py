@@ -22,6 +22,7 @@ from app.api.routes import (
 from app.core.config import settings
 from app.core.database import init_db
 from app.core.logging import setup_logging
+from app.core.security_headers import SecurityHeadersMiddleware
 
 setup_logging()
 
@@ -54,6 +55,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(SecurityHeadersMiddleware)
 
 # ── Routers ───────────────────────────────────────────────────────────────────
 

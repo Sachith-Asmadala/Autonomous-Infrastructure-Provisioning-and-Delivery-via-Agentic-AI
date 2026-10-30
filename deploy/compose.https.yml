@@ -1,0 +1,16 @@
+# Add only after the certificate exists. This does not change any database volume.
+services:
+  frontend:
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1/healthz"]
+    environment:
+      APP_HOST: ${APP_HOST:?Set APP_HOST to the certificate IP address or DNS name}
+      NGINX_ENVSUBST_FILTER: ^APP_HOST$$
+    ports:
+      - "443:443"
+    volumes:
+      - ./deploy/nginx-https.conf.template:/etc/nginx/templates/default.conf.template:ro
+  backend:
+    environment:
+      COOKIE_SECURE: "true"
+      COOKIE_SAMESITE: lax

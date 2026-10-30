@@ -1,0 +1,122 @@
+{
+  "run_id": "20261030T041249Z-85c9ef",
+  "commit_sha": "c0c126f13d61f75e6564b91da5f73eabfd68a703",
+  "source_sha256": "13af9c20404d3239d4c5327edcb5e1fd6c9c0eb2af8148d5f90a00bff675393f",
+  "execution_date": "2026-10-30T04:12:49.514283+00:00",
+  "test_counts": {
+    "Passed": 451,
+    "Failed": 1
+  },
+  "stages": {
+    "backend": {
+      "status": "Passed",
+      "exit_code": 0,
+      "evidence": "backend.log",
+      "duration_seconds": 47.29
+    },
+    "qa-tools": {
+      "status": "Passed",
+      "exit_code": 0,
+      "evidence": "qa-tools.log",
+      "duration_seconds": 2.67
+    },
+    "frontend-build": {
+      "status": "Passed",
+      "exit_code": 0,
+      "evidence": "frontend-build.log",
+      "duration_seconds": 6.31
+    },
+    "isolated-services": {
+      "status": "Passed",
+      "evidence": "server.log"
+    },
+    "selenium": {
+      "status": "Failed",
+      "exit_code": 1,
+      "evidence": "selenium.log",
+      "duration_seconds": 303.47
+    },
+    "security": {
+      "status": "Passed",
+      "exit_code": 0,
+      "evidence": "security.log",
+      "duration_seconds": 8.56
+    },
+    "zap": {
+      "status": "Warning",
+      "exit_code": 2,
+      "image": "ghcr.io/zaproxy/zaproxy:stable",
+      "target": "http://host.docker.internal:57518",
+      "findings": 6,
+      "evidence": [
+        "zap.html",
+        "zap.json",
+        "security-findings.json"
+      ]
+    }
+  },
+  "files": {
+    "backend.xml": {
+      "original_sha256": "bdf2a995124ae5d2923f70850206ee4fc04f1a10dca00346a8fd7f1b5c7db498",
+      "published_sha256": "bdf2a995124ae5d2923f70850206ee4fc04f1a10dca00346a8fd7f1b5c7db498"
+    },
+    "browser.json": {
+      "original_sha256": "8931b1600267b30cb9a8006dd97566d4ec66f0c0739212d027b65e8fa8c3a470",
+      "published_sha256": "8931b1600267b30cb9a8006dd97566d4ec66f0c0739212d027b65e8fa8c3a470"
+    },
+    "header-observations.json": {
+      "original_sha256": "a58a0f3e45d695964de95d69f8a632898222eb39ab67bd35760706d5e3ba3c11",
+      "published_sha256": "a58a0f3e45d695964de95d69f8a632898222eb39ab67bd35760706d5e3ba3c11"
+    },
+    "manifest.json": {
+      "original_sha256": "6ec39f4c193c9756e1fda2ace57763c176f3ace123ed284d4c6742be077ade12",
+      "published_sha256": "6ec39f4c193c9756e1fda2ace57763c176f3ace123ed284d4c6742be077ade12"
+    },
+    "qa-tools.xml": {
+      "original_sha256": "cff92668dcec25f0c7ca8dff003a1a15b15b08fdbfe5f40047fbc890848165e5",
+      "published_sha256": "cff92668dcec25f0c7ca8dff003a1a15b15b08fdbfe5f40047fbc890848165e5"
+    },
+    "security-findings.json": {
+      "original_sha256": "ab8cd262e26be1afa2a1876c6ea6b5b50f1dd9b7a17501ae9cdd8c6dad6eb363",
+      "published_sha256": "ab8cd262e26be1afa2a1876c6ea6b5b50f1dd9b7a17501ae9cdd8c6dad6eb363"
+    },
+    "security.xml": {
+      "original_sha256": "8df58080197d7c257f9e81401a2667638927b0d592429929447e7e39d75a7f6c",
+      "published_sha256": "8df58080197d7c257f9e81401a2667638927b0d592429929447e7e39d75a7f6c"
+    },
+    "selenium.html": {
+      "original_sha256": "9fc0955c4d254f81f1ee10e46c6d2a59100e8bb97b6bb4c7eec9fcf0d1d42bda",
+      "published_sha256": "0d0393eb5b83bcf9ee9fa7bad977e7c1c53e0683f886e20d7b50cda601929880"
+    },
+    "selenium.xml": {
+      "original_sha256": "d5809d6f4c0945f79fe5a0f192eef89bd4240afacf8821b3ba34c53780d00fbd",
+      "published_sha256": "1aca1dc41461bf0719b8505ed7532186878b91ae4a5ff1eef7d5d7fd52faca2d"
+    },
+    "summary.json": {
+      "original_sha256": "2999714b18a4c7e9aece880b5870e5c8c658d469911f36e62399025647ab35ef",
+      "published_sha256": "2999714b18a4c7e9aece880b5870e5c8c658d469911f36e62399025647ab35ef"
+    },
+    "summary.md": {
+      "original_sha256": "8a93f12c6440de41d27092a13857e145760a084631eeeac2393d07eff5ecc356",
+      "published_sha256": "8a93f12c6440de41d27092a13857e145760a084631eeeac2393d07eff5ecc356"
+    },
+    "traceability.md": {
+      "original_sha256": "b06e6125f5d5cb8eae9ef491fa23fdadacabdb5952539b6c63306c72c402c04d",
+      "published_sha256": "b06e6125f5d5cb8eae9ef491fa23fdadacabdb5952539b6c63306c72c402c04d"
+    },
+    "zap.html": {
+      "original_sha256": "e68636ddf9b87a82c9a7db8ffafad6a69b2d687ac523e146db3ff407dc9ab79f",
+      "published_sha256": "e68636ddf9b87a82c9a7db8ffafad6a69b2d687ac523e146db3ff407dc9ab79f"
+    },
+    "zap.json": {
+      "original_sha256": "c0f5230caef721724df3554c3d037730cc83be93b90d7110b52c597b8200a974",
+      "published_sha256": "c0f5230caef721724df3554c3d037730cc83be93b90d7110b52c597b8200a974"
+    }
+  },
+  "redactions": [
+    "Local user paths",
+    "Recognizable JWT and GitHub tokens"
+  ],
+  "scope": "Actual reports; no reconstructed results or fabricated screenshots.",
+  "archive_sha256": "e36595fcc1cb7c2339f59f919a918812a97608e22a8dcee7270134485e410a57"
+}

@@ -45,12 +45,13 @@ def test_readiness_flags_dependency_review_warning_and_missing_tests():
     assert "tests" in categories
 
 
-def test_readiness_flags_secret_like_files_as_critical():
+def test_readiness_flags_secret_like_files_for_review():
     files = ["requirements.txt", "app/main.py", ".env"]
     stack = detect_stack(files)
 
     report = assess_cicd_readiness(files, stack)
 
     assert report["score"] <= 70
-    assert any(finding["severity"] == "critical" for finding in report["findings"])
+    assert any(finding["severity"] == "warning" and finding["category"] == "security"
+               for finding in report["findings"])
     assert any("secret" in action.lower() for action in report["recommended_next_actions"])

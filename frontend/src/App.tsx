@@ -272,7 +272,7 @@ export default function App() {
   }, [syncSystemTheme]);
 
   return (
-    <Router future={{ v7_relativeSplatPath: true, v7_startTransition: true }}>
+    <Router>
       <AppRoutes />
     </Router>
   );

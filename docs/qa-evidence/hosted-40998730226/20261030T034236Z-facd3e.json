@@ -1,0 +1,55 @@
+{
+  "run_id": "20261030T034236Z-facd3e",
+  "commit_sha": "c0c126f13d61f75e6564b91da5f73eabfd68a703",
+  "source_sha256": "15495a327bd903ec850090215ab58b290f2dd6366ab238bfdf9d9eb4a3529666",
+  "execution_date": "2026-10-30T03:42:36.768294+00:00",
+  "test_counts": {
+    "Passed": 378
+  },
+  "stages": {
+    "backend": {
+      "status": "Passed",
+      "exit_code": 0,
+      "evidence": "backend.log",
+      "duration_seconds": 55.28
+    },
+    "qa-tools": {
+      "status": "Passed",
+      "exit_code": 0,
+      "evidence": "qa-tools.log",
+      "duration_seconds": 2.42
+    }
+  },
+  "files": {
+    "backend.xml": {
+      "original_sha256": "7019ce9e097d9f24363139a159832c18b0cd7a24bd3bc4c72cf4118ddf7f9b58",
+      "published_sha256": "7019ce9e097d9f24363139a159832c18b0cd7a24bd3bc4c72cf4118ddf7f9b58"
+    },
+    "manifest.json": {
+      "original_sha256": "66c7043b4aa7d472afbdd2a8255f69d3a99bbac9802958bb48cb6b170e7cb51b",
+      "published_sha256": "66c7043b4aa7d472afbdd2a8255f69d3a99bbac9802958bb48cb6b170e7cb51b"
+    },
+    "qa-tools.xml": {
+      "original_sha256": "a3a0893c8f98fd82c82d48b7190b1d3545806c9b39671eb4f5aed5bc6a5ed6f8",
+      "published_sha256": "a3a0893c8f98fd82c82d48b7190b1d3545806c9b39671eb4f5aed5bc6a5ed6f8"
+    },
+    "summary.json": {
+      "original_sha256": "2d6f366afcf71876f25ce116bb3abb8616d8271437a964b9ff5585734c65fee3",
+      "published_sha256": "2d6f366afcf71876f25ce116bb3abb8616d8271437a964b9ff5585734c65fee3"
+    },
+    "summary.md": {
+      "original_sha256": "9220d8d2a196bd42a3a168d6427c2a2d1f152ae976b48cc19e9a5190d34bcba5",
+      "published_sha256": "9220d8d2a196bd42a3a168d6427c2a2d1f152ae976b48cc19e9a5190d34bcba5"
+    },
+    "traceability.md": {
+      "original_sha256": "28230dc9cd3864d21fad49ae7f5efdc3d9dc7c96a444ad7d04afb53294e03990",
+      "published_sha256": "28230dc9cd3864d21fad49ae7f5efdc3d9dc7c96a444ad7d04afb53294e03990"
+    }
+  },
+  "redactions": [
+    "Local user paths",
+    "Recognizable JWT and GitHub tokens"
+  ],
+  "scope": "Actual reports; no reconstructed results or fabricated screenshots.",
+  "archive_sha256": "916850dd4835453ebe515b4ba700ccd9a982defdca3e7089829907a01684919c"
+}

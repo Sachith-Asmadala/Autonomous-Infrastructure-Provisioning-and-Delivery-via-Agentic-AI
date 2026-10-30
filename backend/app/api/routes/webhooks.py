@@ -47,7 +47,15 @@ async def github_webhook(
     if not verify_webhook_signature(body, x_hub_signature_256):
         raise HTTPException(status_code=401, detail="Invalid webhook signature.")
 
-    payload = await request.json()
+    try:
+        payload = await request.json()
+    except (ValueError, UnicodeDecodeError) as exc:
+        raise HTTPException(status_code=400, detail="Webhook payload must be valid JSON.") from exc
+    if not isinstance(payload, dict) or any(
+        key in payload and not isinstance(payload[key], dict)
+        for key in ("repository", "workflow_run", "installation")
+    ):
+        raise HTTPException(status_code=400, detail="Webhook payload has an invalid object structure.")
     event = x_github_event or "unknown"
     request_id = x_github_delivery or str(uuid.uuid4())
     context = _webhook_context(payload, event=event, request_id=request_id)

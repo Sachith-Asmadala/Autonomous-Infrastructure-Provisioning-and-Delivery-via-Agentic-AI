@@ -45,11 +45,22 @@ interface ApprovalDetails {
   workflow_url?: string;
 }
 
+function approvalDate(value: string) {
+  return new Date(/(?:Z|[+-]\d{2}:\d{2})$/.test(value) ? value : `${value}Z`);
+}
+
 function relativeTime(value?: string) {
   if (!value) return "time unknown";
-  const date = new Date(value);
+  const date = approvalDate(value);
   if (Number.isNaN(date.getTime())) return "time unknown";
   return formatDistanceToNow(date, { addSuffix: true });
+}
+
+function isExpired(approval: Approval, now: number) {
+  if (["expired", "timed_out"].includes(approval.status)) return true;
+  if (!approval.expires_at) return false;
+  // SQLite API timestamps can omit a timezone; backend expiry uses UTC.
+  return approvalDate(approval.expires_at).getTime() <= now;
 }
 
 function parseApprovalDetails(approval: Approval): ApprovalDetails | null {
@@ -108,6 +119,11 @@ function ApprovalsContent({ user }: { user: User | null }) {
     }
   }
   const [decidingId, setDecidingId] = useState<string | null>(null);
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   const fetchApprovals = async () => {
     setLoading(true);
@@ -135,7 +151,7 @@ function ApprovalsContent({ user }: { user: User | null }) {
   }, []);
 
   const canDecideRequest = (approval: Approval, approved: boolean) => {
-    if (!canDecide || approval.status !== "pending") return false;
+    if (!canDecide || approval.status !== "pending" || isExpired(approval, Date.now())) return false;
     if (
       approval.tool_name === "admin_set_user_active" &&
       !hasPermission(user?.role, "users:manage")
@@ -313,6 +329,7 @@ function ApprovalsContent({ user }: { user: User | null }) {
               return (
                 <div
                   key={a.id}
+                  data-approval-id={a.id}
                   className="card p-4 transition hover:border-primary-500/30 sm:p-5"
                 >
                   <div className="mb-4 flex items-start gap-3">
@@ -341,7 +358,9 @@ function ApprovalsContent({ user }: { user: User | null }) {
                         )}
                         {a.expires_at && (
                           <span className="text-amber-700 dark:text-amber-300">
-                            Expires {relativeTime(a.expires_at)}
+                            {isExpired(a, now)
+                              ? "Expired — execution is blocked."
+                              : `Expires ${relativeTime(a.expires_at)}`}
                           </span>
                         )}
                       </div>

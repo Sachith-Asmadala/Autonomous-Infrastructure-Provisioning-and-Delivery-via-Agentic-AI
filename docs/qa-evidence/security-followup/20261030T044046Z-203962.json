@@ -1,0 +1,117 @@
+{
+  "run_id": "20261030T044046Z-203962",
+  "commit_sha": "c0c126f13d61f75e6564b91da5f73eabfd68a703",
+  "source_sha256": "f41c0075f458ac10fcb94d43f5cefd1fdbda8a5ad30bcb58af8ad3c6ada29cf4",
+  "execution_date": "2026-10-30T04:40:46.349089+00:00",
+  "test_counts": {
+    "Passed": 454
+  },
+  "stages": {
+    "backend": {
+      "status": "Passed",
+      "exit_code": 0,
+      "evidence": "backend.log",
+      "duration_seconds": 49.43
+    },
+    "qa-tools": {
+      "status": "Passed",
+      "exit_code": 0,
+      "evidence": "qa-tools.log",
+      "duration_seconds": 2.43
+    },
+    "frontend-build": {
+      "status": "Passed",
+      "exit_code": 0,
+      "evidence": "frontend-build.log",
+      "duration_seconds": 4.56
+    },
+    "isolated-services": {
+      "status": "Passed",
+      "evidence": "server.log"
+    },
+    "selenium": {
+      "status": "Passed",
+      "exit_code": 0,
+      "evidence": "selenium.log",
+      "duration_seconds": 342.41
+    },
+    "security": {
+      "status": "Passed",
+      "exit_code": 0,
+      "evidence": "security.log",
+      "duration_seconds": 15.34
+    },
+    "zap": {
+      "status": "Not Executed",
+      "reason": "Explicit --no-zap option."
+    }
+  },
+  "files": {
+    "backend.xml": {
+      "original_sha256": "6fdfe848d5f1138304365c8bc94e68004b9d00094103e4ec16afe304eb605f12",
+      "published_sha256": "6fdfe848d5f1138304365c8bc94e68004b9d00094103e4ec16afe304eb605f12"
+    },
+    "browser.json": {
+      "original_sha256": "8931b1600267b30cb9a8006dd97566d4ec66f0c0739212d027b65e8fa8c3a470",
+      "published_sha256": "8931b1600267b30cb9a8006dd97566d4ec66f0c0739212d027b65e8fa8c3a470"
+    },
+    "header-observations.json": {
+      "original_sha256": "3efa46df3bf25f4d7a9ac89c7031c6e1c215ddb9793e980d6992e0a8d2777a60",
+      "published_sha256": "3efa46df3bf25f4d7a9ac89c7031c6e1c215ddb9793e980d6992e0a8d2777a60"
+    },
+    "manifest.json": {
+      "original_sha256": "7e0851cff183551014a4ece1d2e90835da2d3c42f06baac7516f95219e3b000c",
+      "published_sha256": "7e0851cff183551014a4ece1d2e90835da2d3c42f06baac7516f95219e3b000c"
+    },
+    "npm-audit.json": {
+      "original_sha256": "551ba23787723fb8fe4617b6df5291b37b45d61fff6f9c4e821dc443c360cec8",
+      "published_sha256": "551ba23787723fb8fe4617b6df5291b37b45d61fff6f9c4e821dc443c360cec8"
+    },
+    "public-https-verification.json": {
+      "original_sha256": "8a6678d1097f088f82a47a37f769c1b538add89445a776baa96b5be1c3656d0e",
+      "published_sha256": "8a6678d1097f088f82a47a37f769c1b538add89445a776baa96b5be1c3656d0e"
+    },
+    "qa-tools.xml": {
+      "original_sha256": "037b9e46581efc709128cb307875accd65b78659228b9d26412f3088c65fa88a",
+      "published_sha256": "037b9e46581efc709128cb307875accd65b78659228b9d26412f3088c65fa88a"
+    },
+    "security.xml": {
+      "original_sha256": "21d1907879e1d479b612dac0ae4c33af6bb4b4514612b4392dbe2f59dc9a2035",
+      "published_sha256": "21d1907879e1d479b612dac0ae4c33af6bb4b4514612b4392dbe2f59dc9a2035"
+    },
+    "selenium.html": {
+      "original_sha256": "c46b3f0439d8e2008134742517c65b7d635dd9aacb37ac9b0eb95e2c648a4e1b",
+      "published_sha256": "c46b3f0439d8e2008134742517c65b7d635dd9aacb37ac9b0eb95e2c648a4e1b"
+    },
+    "selenium.xml": {
+      "original_sha256": "fbd508d119d7e2cbfb01320f8ce72a7d09a43284065c36b9bd82240d2ebfde82",
+      "published_sha256": "fbd508d119d7e2cbfb01320f8ce72a7d09a43284065c36b9bd82240d2ebfde82"
+    },
+    "summary.json": {
+      "original_sha256": "c4b997663b9f5719f776172c34ad7f6bb3fb1bdfe4e5f8f2f377384bad5a5266",
+      "published_sha256": "c4b997663b9f5719f776172c34ad7f6bb3fb1bdfe4e5f8f2f377384bad5a5266"
+    },
+    "summary.md": {
+      "original_sha256": "87ecdbb05edc0734bcf91fa4d98aeea313b6717c551c6ba37d88c459b824fe7b",
+      "published_sha256": "87ecdbb05edc0734bcf91fa4d98aeea313b6717c551c6ba37d88c459b824fe7b"
+    },
+    "supplemental-checks.json": {
+      "original_sha256": "16ccbe01a7ccae41d44d6a1df75ce1ebd9dabe5a97568eec6fa8486ab46aaa84",
+      "published_sha256": "16ccbe01a7ccae41d44d6a1df75ce1ebd9dabe5a97568eec6fa8486ab46aaa84"
+    },
+    "tls-profile-validation.json": {
+      "original_sha256": "3a8f733f83572c28d183f85846af9e1847a3ea175df3df9cfaba9faf3f4c1ea5",
+      "published_sha256": "3a8f733f83572c28d183f85846af9e1847a3ea175df3df9cfaba9faf3f4c1ea5"
+    },
+    "traceability.md": {
+      "original_sha256": "6b0b7e90f7a46569d252fbac6b8d321ff3b48a76781e58560aade5e1cd43c5b7",
+      "published_sha256": "6b0b7e90f7a46569d252fbac6b8d321ff3b48a76781e58560aade5e1cd43c5b7"
+    }
+  },
+  "redactions": [
+    "Local user paths",
+    "Recognizable JWT and GitHub tokens"
+  ],
+  "scope": "Actual reports; no reconstructed results or fabricated screenshots.",
+  "archive_sha256": "6ae00015327935ff83bc6b6ee4b2bc1f808cd4ec07070f7f9332dbb56505f6a7"
+}

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import math
 from typing import Any
 
 from app.core.config import settings
@@ -47,8 +48,8 @@ def _get_model() -> Any:
     if _model is None:
         if not MODEL_PATH.exists():
             raise FailurePredictionUnavailable(
-                "Failure prediction model not found at "
-                f"{MODEL_PATH}. Train it with `python3 app/ml/train_failure_model.py` "
+                "Failure prediction model not found. "
+                "Train it with `python3 app/ml/train_failure_model.py` "
                 "from the backend directory."
             )
         try:
@@ -110,7 +111,13 @@ def _prediction_confidence(model: Any, log_text: str) -> float | None:
 
     if len(probabilities) == 0 or len(probabilities[0]) == 0:
         return None
-    return round(float(max(probabilities[0])), 4)
+    try:
+        values = [float(value) for value in probabilities[0]]
+        if any(not math.isfinite(value) or not 0 <= value <= 1 for value in values):
+            return None
+        return round(max(values), 4)
+    except (ValueError, TypeError):
+        return None
 
 
 def _safe_label(prediction: Any) -> str:
@@ -124,6 +131,8 @@ def _safe_label(prediction: Any) -> str:
 
 def predict_failure(log_text: str) -> dict:
     """Classify a CI/CD failure log and return a remediation hint."""
+    if log_text is not None and not isinstance(log_text, str):
+        raise ValueError("Failure log must be text.")
     cleaned_log = (log_text or "").strip()
     if not cleaned_log:
         recommendation = get_fix_recommendation(UNKNOWN_LABEL, cleaned_log)

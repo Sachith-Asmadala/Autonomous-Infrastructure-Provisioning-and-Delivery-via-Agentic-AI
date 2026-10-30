@@ -4,6 +4,28 @@
 
 .DEFAULT_GOAL := help
 
+.PHONY: qa-setup qa qa-backend qa-browser qa-security
+
+## Install the existing project plus the QA-only browser/report dependencies.
+qa-setup: setup
+	$(PIP) install -r qa/requirements.txt
+
+## Run all isolated QA stages, including passive ZAP (requires Docker daemon).
+qa:
+	$(BACKEND_PY) -m qa.run
+
+## Backend regression suite, coverage and QA harness tests.
+qa-backend:
+	$(BACKEND_PY) -m qa.run --suite backend
+
+## Selenium with real application services and deterministic external tools.
+qa-browser:
+	$(BACKEND_PY) -m qa.run --suite browser --no-zap
+
+## Controlled auth/RBAC tests plus local passive ZAP baseline.
+qa-security:
+	$(BACKEND_PY) -m qa.run --suite security
+
 SHELL := /bin/sh
 PYTHON ?= python3.11
 BACKEND_DIR := backend
@@ -69,6 +91,11 @@ help:
 	@echo "  make lint               Run configured backend/frontend linters"
 	@echo "  make format             Run configured backend/frontend formatters"
 	@echo "  make build              Build frontend production bundle"
+	@echo "  make qa-setup           Install project and QA-only dependencies"
+	@echo "  make qa                 Run isolated backend, Selenium, security and passive ZAP"
+	@echo "  make qa-backend         Backend regression, coverage and QA harness checks"
+	@echo "  make qa-browser         Selenium browser checks (ZAP explicitly not executed)"
+	@echo "  make qa-security        Controlled security tests and local passive ZAP"
 	@echo "  make build-frontend     Build frontend with desktop production env"
 	@echo "  make build-backend-exe  Build packaged backend executable with PyInstaller"
 	@echo "  make desktop-check      Verify desktop build prerequisites"

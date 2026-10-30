@@ -33,7 +33,8 @@ _SENSITIVE_COMMAND_PATTERNS = [
     re.compile(r"(gh[pousr]_|github_pat_)[A-Za-z0-9_]+", re.IGNORECASE),
     re.compile(r"(Bearer\s+)[^\s\"']+", re.IGNORECASE),
     re.compile(
-        r"(?i)((token|secret|api[_-]?key|password|credential|access[_-]?key)\s*[:=]\s*)[^\s\"']+"
+        r"(?i)((?:token|secret|api[_-]?key|password|credential|access[_-]?key)\s*[:=]\s*)"
+        r"(?:\"[^\"]*\"|'[^']*'|[^\s\"']+)"
     ),
 ]
 
@@ -47,9 +48,25 @@ def _redact_command_for_log(command: str) -> str:
 
 
 def _is_allowed(command: str) -> bool:
-    """Check if the command starts with an allowed prefix."""
-    cmd_lower = command.strip().lower()
-    return any(cmd_lower.startswith(allowed.lower()) for allowed in ALLOWED_COMMANDS)
+    """Validate complete argv; prefix matching permits extra privileged flags."""
+    if not isinstance(command, str) or len(command) > 2000:
+        return False
+    if any(character in command for character in "\n\r\x00;|&><`$"):
+        return False
+    try:
+        args = shlex.split(command)
+    except ValueError:
+        return False
+    if not args:
+        return False
+    if args[0] == "echo":
+        return True  # Literal argv only, never shell expansion.
+    if args[:2] == ["journalctl", "-n"]:
+        return len(args) == 3 and bool(re.fullmatch(r"[0-9]{1,4}", args[2])) and 1 <= int(args[2]) <= 1000
+    if args[:2] == ["systemctl", "status"]:
+        return len(args) == 3 and bool(re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.@-]{0,127}", args[2]))
+    return args in [shlex.split(allowed) for allowed in ALLOWED_COMMANDS
+                    if allowed not in {"echo", "journalctl -n", "systemctl status"}]
 
 
 def execute_safe_shell_command(command: str) -> str:
@@ -58,23 +75,33 @@ def execute_safe_shell_command(command: str) -> str:
     Rejects any command not in the allowlist.
     """
     if not _is_allowed(command):
-        logger.warning("shell.blocked", command_preview=_redact_command_for_log(command))
+        logger.warning("shell.blocked", command_preview=_redact_command_for_log(str(command)))
         return (
-            f"🚫 Command blocked: '{command}'\n"
+            f"🚫 Command blocked: '{_redact_command_for_log(str(command))}'\n"
             f"Only the following commands are permitted:\n"
             + "\n".join(f"  - {c}" for c in ALLOWED_COMMANDS)
         )
     try:
         logger.info("shell.execute", command_preview=_redact_command_for_log(command))
+        args = shlex.split(command)
+        if args[0] in {"systemctl", "journalctl"}:
+            args.append("--no-pager")
         result = subprocess.run(
-            shlex.split(command),
+            args,
             capture_output=True,
             text=True,
             timeout=30,
         )
         output = result.stdout or result.stderr
-        return output.strip() or "(command produced no output)"
+        return _redact_output(output.strip()) or "(command produced no output)"
     except subprocess.TimeoutExpired:
         return "Command timed out after 30 seconds."
     except Exception as e:
-        return f"Error executing command: {e}"
+        logger.warning("shell.failed", error_type=e.__class__.__name__)
+        return "Error executing command. Check the audit log for details."
+
+
+def _redact_output(output: str) -> str:
+    for pattern in _SENSITIVE_COMMAND_PATTERNS:
+        output = pattern.sub(lambda match: f"{match.group(1)}[REDACTED]", output)
+    return output

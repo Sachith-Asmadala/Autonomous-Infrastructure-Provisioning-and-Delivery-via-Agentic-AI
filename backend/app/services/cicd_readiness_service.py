@@ -213,17 +213,28 @@ def _docker_penalty(
 
 
 def _secret_penalty(files: list[str], findings: list[ReadinessFinding]) -> int:
-    risky_names = (".env", "id_rsa", "private-key", "credentials.json", "service-account.json")
-    risky_files = [file for file in files if file.endswith(risky_names) or any(name in file for name in risky_names)]
+    # File names are evidence for inspection, not proof of credential exposure.
+    # Templates are intentionally committed and should not lower readiness.
+    risky_files = []
+    for file in files:
+        name = file.rsplit("/", 1)[-1]
+        if name.endswith((".example", ".sample", ".template", ".dist")):
+            continue
+        if (name == ".env" or name.startswith(".env.")
+                or name in {"id_rsa", "id_ed25519", "credentials.json", "service-account.json"}
+                or name.startswith("private-key")):
+            risky_files.append(file)
     if not risky_files:
         return 0
     findings.append(
         _finding(
-            "critical",
+            "warning",
             "security",
             "Potential secret-bearing files detected",
-            f"These files look risky for a public repository: {', '.join(risky_files[:3])}.",
-            "Remove secret files from git, rotate exposed credentials, and use GitHub Actions secrets instead.",
+            f"Inspect these file contents for secrets: {', '.join(risky_files[:3])}. "
+            "Names alone do not establish credential exposure.",
+            "Inspect the content; remove actual secrets from git and rotate credentials if exposure is confirmed. "
+            "Use GitHub Actions secrets for credentials.",
         )
     )
     return 25

@@ -93,6 +93,21 @@ jobs:
             -o ServerAliveInterval=30 -o ServerAliveCountMax=6 \
             "$EC2_USER@$EC2_HOST" "bash -s -- $DEPLOY_SHA" < scripts/deploy_ec2.sh
 
+      - name: Verify configured public HTTPS origin
+        if: success() && steps.revision.outputs.ready == 'true' && vars.PRODUCTION_HTTPS_ORIGIN != ''
+        env:
+          HTTPS_ORIGIN: ${{ vars.PRODUCTION_HTTPS_ORIGIN }}
+        run: python3 scripts/verify_https.py "$HTTPS_ORIGIN" --output qa/reports/production-https.json
+
+      - name: Preserve public HTTPS verification
+        if: always() && steps.revision.outputs.ready == 'true' && vars.PRODUCTION_HTTPS_ORIGIN != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-https-${{ steps.revision.outputs.sha }}
+          path: qa/reports/production-https.json
+          if-no-files-found: warn
+          retention-days: 90
+
       - name: Deployment summary
         if: success() && steps.revision.outputs.ready == 'true'
         env:

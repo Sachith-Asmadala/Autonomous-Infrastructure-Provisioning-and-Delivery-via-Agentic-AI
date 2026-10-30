@@ -103,3 +103,7 @@ postgres_data/
 *.p12
 *.pfx
 secrets/
+
+# Disposable QA evidence (contains local paths; publish deliberately after review).
+qa/reports/
+qa/published/

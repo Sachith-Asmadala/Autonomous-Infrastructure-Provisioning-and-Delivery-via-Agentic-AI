@@ -1,0 +1,16 @@
+# Merge with docker-compose.yml to obtain certificates while HTTP stays online.
+services:
+  frontend:
+    volumes:
+      - acme_webroot:/var/www/acme:ro
+      - tls_certificates:/etc/letsencrypt:ro
+  certbot:
+    image: certbot/certbot:v5.9.0
+    profiles: [tls-tools]
+    volumes:
+      - acme_webroot:/var/www/acme
+      - tls_certificates:/etc/letsencrypt
+
+volumes:
+  acme_webroot:
+  tls_certificates:
